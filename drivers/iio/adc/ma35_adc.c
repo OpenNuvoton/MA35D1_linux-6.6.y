@@ -416,14 +416,14 @@ static int ma35_adc_resume(struct device *dev)
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
 	struct ma35_iio_priv *priv = iio_priv(indio_dev);
 
+	clk_prepare_enable(priv->adc_clk);
+
 	/* enable irq */
 	enable_irq(priv->irq);
 
 	/* Power up the ADC */
 	__raw_writel(__raw_readl(priv->base + REG_ADC_CTL) | ADC_CTL_ADEN,
 		priv->base + REG_ADC_CTL);
-
-	clk_prepare_enable(priv->adc_clk);
 
 	return 0;
 }
