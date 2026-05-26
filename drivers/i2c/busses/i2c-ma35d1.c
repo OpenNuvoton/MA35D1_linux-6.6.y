@@ -197,7 +197,6 @@ static void ma35d1_i2c_message_start(struct ma35d1_i2c *i2c)
 static inline void ma35d1_i2c_stop(struct ma35d1_i2c *i2c, int ret)
 {
 	unsigned int i = 0;
-	unsigned int tmp;
 
 	dev_dbg(i2c->dev, "STOP\n");
 
@@ -671,6 +670,7 @@ static int ma35d1_i2c_probe(struct platform_device *pdev)
 	struct i2c_adapter *adap;
 	int ret, err;
 	int busfreq = 0;
+	u32 nfcnt;
 	struct device *dev = &pdev->dev;
 
 	if (!pdev->dev.of_node) {
@@ -738,6 +738,12 @@ static int ma35d1_i2c_probe(struct platform_device *pdev)
 
 	__raw_writel((__raw_readl(i2c->regs+CTL0)|(0x1 << 6)),
 				i2c->regs + CTL0);
+
+	if (!of_property_read_u32(pdev->dev.of_node, "nuvoton,nfcnt", &nfcnt)) {
+		nfcnt &= 0xF;
+		writel(readl(i2c->regs + CLKDIV) | (nfcnt << 12),
+		       i2c->regs + CLKDIV);
+	}
 
 	/* find the IRQ for this unit (note, this relies on the init call to
 	 * ensure no current IRQs pending
