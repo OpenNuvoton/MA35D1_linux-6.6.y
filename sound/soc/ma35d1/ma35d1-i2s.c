@@ -30,8 +30,6 @@
 #include "ma35d1-i2s.h"
 
 static DEFINE_MUTEX(i2s_mutex);
-struct ma35d1_i2s_info *ma35d1_i2s_data;
-EXPORT_SYMBOL(ma35d1_i2s_data);
 
 static inline void ma35d1_i2s_write_reg(struct ma35d1_i2s_info *info,
                                         unsigned reg, unsigned val)
@@ -83,11 +81,15 @@ static int ma35d1_i2s_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	/* set MONO if channel number is 1 */
-	if (channels == 1)
-		val |= MONO;
-	else
-		val &= ~MONO;
+	if (info->raw_pdm_mono && substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
+		val = PBWIDTH_16 | ORDER;
+	} else {
+		/* set MONO if channel number is 1 */
+		if (channels == 1)
+			val |= MONO;
+		else
+			val &= ~MONO;
+	}
 
 	ma35d1_i2s_write_reg(info, I2S_CTL0, val);
 
@@ -137,7 +139,12 @@ static int ma35d1_i2s_set_sysclk(struct snd_soc_dai *cpu_dai, int clk_id, unsign
 
 	i2s_clk = clk_get_rate(info->clk);
 
-	bitrate = freq * 2U * 16U;
+	if (info->raw_pdm_mono && cpu_dai->channels == 1)
+		bitrate = freq * cpu_dai->sample_bits;
+	else if (info->pdm_decimation)
+		bitrate = freq * info->pdm_decimation;
+	else
+		bitrate = freq * 2U * 16U;
 	bclkdiv = ((((i2s_clk * 10UL / bitrate) >> 1U) + 5UL) / 10UL) - 1U;
 
 
@@ -327,7 +334,7 @@ struct snd_soc_dai_driver ma35d1_i2s_dai = {
 		.channels_max   = 2,
 	},
 	.capture = {
-		.rates      = SNDRV_PCM_RATE_8000_48000,
+		.rates      = SNDRV_PCM_RATE_8000_192000,
 		.formats    = SNDRV_PCM_FMTBIT_S16_LE,
 		.channels_min   = 1,
 		.channels_max   = 2,
@@ -349,9 +356,6 @@ static int ma35d1_i2s_drvprobe(struct platform_device *pdev)
 	int ret;
 
 	//printk("Enter %s.....\n", __FUNCTION__);
-
-	if (ma35d1_i2s_data)
-		return -EBUSY;
 
 	info = devm_kzalloc(&pdev->dev, sizeof(struct ma35d1_i2s_info), GFP_KERNEL);
 	if (!info)
@@ -412,7 +416,15 @@ static int ma35d1_i2s_drvprobe(struct platform_device *pdev)
 	else
 		info->mclk_out = mclk_out;
 
-	ma35d1_i2s_data = info;
+	of_property_read_u32(pdev->dev.of_node, "pdm-decimation",
+			     &info->pdm_decimation);
+	if (info->pdm_decimation &&
+	    info->pdm_decimation != 64 &&
+	    info->pdm_decimation != 128)
+		return -EINVAL;
+
+	info->raw_pdm_mono = of_property_read_bool(pdev->dev.of_node,
+						   "nuvoton,raw-pdm-mono");
 
 	dev_set_drvdata(&pdev->dev, info);
 
@@ -444,14 +456,15 @@ MODULE_DEVICE_TABLE(of, ma35d1_audio_i2s_of_match);
 
 static int ma35d1_i2s_drvremove(struct platform_device *pdev)
 {
+	struct ma35d1_i2s_info *info = dev_get_drvdata(&pdev->dev);
+
 	snd_soc_unregister_component(&pdev->dev);
 
-	clk_put(ma35d1_i2s_data->clk);
-	iounmap(ma35d1_i2s_data->regs);
-	release_mem_region(ma35d1_i2s_data->res->start, resource_size(ma35d1_i2s_data->res));
+	clk_put(info->clk);
+	iounmap(info->regs);
+	release_mem_region(info->res->start, resource_size(info->res));
 
-	kfree(ma35d1_i2s_data);
-	ma35d1_i2s_data = NULL;
+	kfree(info);
 
 	return 0;
 }
