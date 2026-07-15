@@ -123,7 +123,17 @@ static inline struct ma35d0_desc *to_ma35d0_dma_desc(struct dma_async_tx_descrip
 
 static void ma35d0_dma_desc_free(struct virt_dma_desc *vd)
 {
-	kfree(container_of(vd, struct ma35d0_desc, vd));
+	struct ma35d0_desc *d = container_of(vd, struct ma35d0_desc, vd);
+	struct ma35d0_chan *ch;
+
+	if (d->sg_addr && vd->tx.chan) {
+		ch = to_ma35d0_dma_chan(vd->tx.chan);
+		dma_unmap_single(ch->dev, d->sg_addr,
+				 sizeof(struct ma35d0_sg) * d->sglen,
+				 DMA_TO_DEVICE);
+		d->sg_addr = 0;
+	}
+	kfree(d);
 }
 
 static int ma35d0_terminate_all(struct dma_chan *chan)
@@ -321,10 +331,10 @@ static struct dma_async_tx_descriptor *ma35d0_prep_dma_memcpy(struct dma_chan *c
 		len -= tlen;
 		d->sg[i].next = d->sg_addr + (16 * (i + 1) + 4);
 	}
-	dma_sync_single_for_cpu(ch->dev, d->sg_addr, sizeof(*d->sg), DMA_TO_DEVICE);
 	d->sglen = sg_len;
 	d->sg[d->sglen - 1].ctl &= ~(PDMA_OP_MSK | PDMA_TBINTDIS);
 	d->sg[d->sglen - 1].ctl |= PDMA_OP_BASIC;
+	dma_sync_single_for_device(ch->dev, d->sg_addr, sizeof(*d->sg) * sg_len, DMA_TO_DEVICE);
 	d->dma_dir = DMA_MEM_TO_MEM;
 	d->cyclic = false;
 
@@ -361,9 +371,9 @@ static struct dma_async_tx_descriptor *ma35d0_prep_slave_sg(struct dma_chan *cha
 	memcpy(&d->pcfg, ch->cfg.peripheral_config, ch->cfg.peripheral_size);
 	ma35d0_set_channel_params(ch);
 	ma35d0_set_transfer_params(ch, d->pcfg.reqsel);
-	d->sg_addr = (u32) dma_map_single(ch->dev,
+	d->sg_addr = dma_map_single(ch->dev,
 					  (void *)(d->sg),
-					  sizeof(struct ma35d0_sg) * sg_len, DMA_BIDIRECTIONAL);
+					  sizeof(struct ma35d0_sg) * sg_len, DMA_TO_DEVICE);
 	writel(d->sg_addr, ch->base + (ch->ch_num * PDMA_OFFSET_CHAN_SIZE) + PDMA_DSCT_NEXT);
 	for_each_sg(sgl, sgent, sg_len, i) {
 		d->sg[i].ctl =
@@ -384,7 +394,7 @@ static struct dma_async_tx_descriptor *ma35d0_prep_slave_sg(struct dma_chan *cha
 	d->sglen = sg_len;
 	d->sg[d->sglen - 1].ctl &= ~(PDMA_OP_MSK | PDMA_TBINTDIS);
 	d->sg[d->sglen - 1].ctl |= PDMA_OP_BASIC;
-	dma_sync_single_for_cpu(ch->dev, d->sg_addr, sizeof(*d->sg) * d->sglen, DMA_TO_DEVICE);
+	dma_sync_single_for_device(ch->dev, d->sg_addr, sizeof(*d->sg) * d->sglen, DMA_TO_DEVICE);
 	d->cyclic = false;
 	ch->error = 0;
 
@@ -415,9 +425,9 @@ static struct dma_async_tx_descriptor *ma35d0_prep_dma_cyclic(struct dma_chan *c
 	memcpy(&d->pcfg, ch->cfg.peripheral_config, ch->cfg.peripheral_size);
 	ma35d0_set_channel_params(ch);
 	ma35d0_set_transfer_params(ch, d->pcfg.reqsel);
-	d->sg_addr = (u32) dma_map_single(ch->dev,
+	d->sg_addr = dma_map_single(ch->dev,
 					  (void *)(d->sg),
-					  sizeof(struct ma35d0_sg) * sg_len, DMA_BIDIRECTIONAL);
+					  sizeof(struct ma35d0_sg) * sg_len, DMA_TO_DEVICE);
 
 	writel(d->sg_addr, ch->base + (ch->ch_num * PDMA_OFFSET_CHAN_SIZE) + PDMA_DSCT_NEXT);
 	/* Split the buffer into period size chunks */
@@ -438,7 +448,7 @@ static struct dma_async_tx_descriptor *ma35d0_prep_dma_cyclic(struct dma_chan *c
 	}
 	d->sglen = sg_len;
 	d->sg[d->sglen - 1].next = d->sg_addr;
-	dma_sync_single_for_cpu(ch->dev, d->sg_addr, sizeof(*d->sg) * d->sglen, DMA_FROM_DEVICE);
+	dma_sync_single_for_device(ch->dev, d->sg_addr, sizeof(*d->sg) * d->sglen, DMA_TO_DEVICE);
 	d->cyclic = true;
 	ch->error = 0;
 	return vchan_tx_prep(&ch->vc, &d->vd, flags);
