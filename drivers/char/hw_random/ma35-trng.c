@@ -16,6 +16,7 @@
 #include <linux/clk.h>
 #include <linux/io.h>
 #include <linux/hw_random.h>
+#include <linux/ma35-trng.h>
 #include <linux/platform_device.h>
 #include <linux/completion.h>
 #include <linux/of_platform.h>
@@ -320,6 +321,17 @@ static int ma35_trng_read(struct hwrng *rng, void *buf, size_t max, bool wait)
 	return retval;
 }
 
+static long ma35_trng_ioctl(struct hwrng *rng, unsigned int cmd,
+			    unsigned long arg)
+{
+	switch (cmd) {
+	case MA35_TRNG_IOC_WRITE_KS:
+		return -EOPNOTSUPP;
+	default:
+		return -ENOIOCTLCMD;
+	}
+}
+
 static int ma35_trng_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -347,6 +359,7 @@ static int ma35_trng_probe(struct platform_device *pdev)
 	tdev->rng.name = pdev->name;
 	tdev->rng.init = ma35_trng_init;
 	tdev->rng.read = ma35_trng_read;
+	tdev->rng.ioctl = ma35_trng_ioctl;
 	tdev->rng.priv = (unsigned long)tdev;
 
 	err = devm_hwrng_register(dev, &tdev->rng);

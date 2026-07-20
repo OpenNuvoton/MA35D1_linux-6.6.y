@@ -824,11 +824,23 @@ static int ma35d1_adc_remove(struct platform_device *pdev)
 #ifdef CONFIG_PM
 static int ma35d1_adc_suspend(struct device *dev)
 {
+	struct iio_dev *indio_dev = dev_get_drvdata(dev);
+	struct ma35d1_adc_device *info = iio_priv(indio_dev);
+
+	writel(readl(info->regs + CTL) & ~ADCEN, info->regs + CTL);
+	clk_disable_unprepare(info->eclk);
+
 	return 0;
 }
 
 static int ma35d1_adc_resume(struct device *dev)
 {
+	struct iio_dev *indio_dev = dev_get_drvdata(dev);
+	struct ma35d1_adc_device *info = iio_priv(indio_dev);
+
+	clk_prepare_enable(info->eclk);
+	writel(readl(info->regs + CTL) | ADCEN, info->regs + CTL);
+
 	return 0;
 }
 

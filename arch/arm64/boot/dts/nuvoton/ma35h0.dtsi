@@ -481,17 +481,16 @@
 	};
 
 	emac0: ethernet@40120000 {
-		compatible = "nuvoton,ma35h0-emac";
+		compatible = "nuvoton,ma35d0-dwmac";
 		reg = <0x0 0x40120000 0x0 0x10000>;
 		interrupts = <GIC_SPI 23 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-names = "macirq";
 		phy-mode = "rmii";
-		nuvoton,ma35h0-sys = <&sys>;
+		nuvoton,sys = <&sys 0>;
 		clocks = <&clk EMAC0_GATE>, <&clk EPLL_DIV8>;
 		clock-names = "stmmaceth", "ptp_ref";
 		resets = <&reset MA35H0_RESET_EMAC0>;
 		reset-names = "stmmaceth";
-		mac-id = <0>;
 		clk_csr = <4>;
 		status = "disable";
 		phy-handle = <&eth_phy0>;

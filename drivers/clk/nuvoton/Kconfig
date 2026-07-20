@@ -3,7 +3,7 @@
 
 config COMMON_CLK_NUVOTON
 	bool "Nuvoton clock controller common support"
-	depends on ARCH_MA35 || COMPILE_TEST
+	depends on ARCH_MA35
 	default y
 	help
 	  Say y here to enable common clock controller for Nuvoton platforms.
