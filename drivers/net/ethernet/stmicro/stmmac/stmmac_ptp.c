@@ -263,7 +263,7 @@ static struct ptp_clock_info stmmac_ptp_clock_ops = {
 	.max_adj = 62500000,
 	.n_alarm = 0,
 	.n_ext_ts = 0, /* will be overwritten in stmmac_ptp_register */
-	.n_per_out = 1, /* we support one pps output pin */
+	.n_per_out = 0, /* will be overwritten in stmmac_ptp_register */
 	.n_pins = 0,
 	.pps = 0,
 	.adjfine = stmmac_adjust_freq,
@@ -284,7 +284,7 @@ void stmmac_ptp_register(struct stmmac_priv *priv)
 {
 	int i;
 
-	for (i = 0; i < stmmac_ptp_clock_ops.n_per_out; i++) {
+	for (i = 0; i < priv->dma_cap.pps_out_num; i++) {
 		if (i >= STMMAC_PPS_MAX)
 			break;
 		priv->pps[i].available = true;
@@ -298,8 +298,7 @@ void stmmac_ptp_register(struct stmmac_priv *priv)
 	if (priv->plat->has_gmac4 && priv->plat->clk_ptp_rate)
 		priv->plat->cdc_error_adj = (2 * NSEC_PER_SEC) / priv->plat->clk_ptp_rate;
 
-	if (priv->dma_cap.pps_out_num)
-		stmmac_ptp_clock_ops.n_per_out = priv->dma_cap.pps_out_num;
+	stmmac_ptp_clock_ops.n_per_out = priv->dma_cap.pps_out_num;
 	stmmac_ptp_clock_ops.n_ext_ts = priv->dma_cap.aux_snapshot_n;
 
 	rwlock_init(&priv->ptp_lock);
