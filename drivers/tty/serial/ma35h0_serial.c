@@ -1391,6 +1391,10 @@ static int get_uart_port_number(struct platform_device *pdev)
 	return val32[0];
 }
 
+static const struct serial_rs485 ma35h0_rs485_supported = {
+    .flags = SER_RS485_ENABLED | SER_RS485_RTS_ON_SEND | SER_RS485_RTS_AFTER_SEND
+};
+
 /*
  * Register a set of serial devices attached to a platform device.  The
  * list is terminated with a zero flags entry, which means we expect
@@ -1480,6 +1484,10 @@ static int ma35h0serial_probe(struct platform_device *pdev)
 	up->port.dev = &pdev->dev;
 	up->port.flags = UPF_BOOT_AUTOCONF;
 	up->port.rs485_config = ma35h0serial_config_rs485;
+	up->port.rs485_supported = ma35h0_rs485_supported;
+    ret = uart_get_rs485_mode(&up->port);
+    if (ret)
+        return ret;
 	ret = uart_add_one_port(&ma35h0serial_reg, &up->port);
 	platform_set_drvdata(pdev, up);
 
