@@ -16,6 +16,7 @@ obj-y += intel/
 obj-y += marvell/
 obj-y += mediatek/
 obj-y += microchip/
+obj-y += nuvoton/ma35d1/
 obj-y += nvidia/
 obj-y += nxp/
 obj-y += qcom/
@@ -28,7 +29,6 @@ obj-y += ti/
 obj-y += verisilicon/
 obj-y += via/
 obj-y += xilinx/
-obj-y += nuvoton/
 
 # Please place here only ancillary drivers that aren't SoC-specific
 # Please keep it alphabetically sorted by Kconfig name

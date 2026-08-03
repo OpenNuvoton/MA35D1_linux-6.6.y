@@ -1,0 +1,28 @@
+/*------------------------------------------------------------------------------
+--                                                                            --
+--       This software is confidential and proprietary and may be used        --
+--        only as expressly authorized by a licensing agreement from          --
+--                                                                            --
+--                            Hantro Products Oy.                             --
+--                                                                            --
+--                   (C) COPYRIGHT 2011 HANTRO PRODUCTS OY                    --
+--                            ALL RIGHTS RESERVED                             --
+--                                                                            --
+--                 The entire notice above must be reproduced                 --
+--                  on all copies and should not be removed.                  --
+--                                                                            --
+--------------------------------------------------------------------------------
+--
+--  Description : Hardware interface read/write
+--
+------------------------------------------------------------------------------*/
+#ifndef __H264HWD_REGDRV_H__
+#define __H264HWD_REGDRV_H__
+
+#include "basetype.h"
+#include "regdrv.h"
+
+#define DEC_X170_ALIGN_MASK         0x07
+#define DEC_X170_MODE_H264          0x00
+
+#endif  /* __H264HWD_REGDRV_H__ */

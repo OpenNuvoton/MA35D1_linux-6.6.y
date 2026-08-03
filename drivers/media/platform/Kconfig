@@ -61,13 +61,6 @@ config VIDEO_MUX
 	help
 	  This driver provides support for N:1 video bus multiplexers.
 
-config VIDEO_NUVOTON_VC8K_LINK
-	bool "Nuvoton VC8000 link V4L2"
-	default y
-	select VIDEOBUF2_DMA_CONTIG
-	select VIDEOBUF2_VMALLOC
-	select V4L2_MEM2MEM_DEV
-
 # Platform drivers - Please keep it alphabetically sorted
 source "drivers/media/platform/allegro-dvt/Kconfig"
 source "drivers/media/platform/amlogic/Kconfig"
@@ -81,6 +74,7 @@ source "drivers/media/platform/marvell/Kconfig"
 source "drivers/media/platform/mediatek/Kconfig"
 source "drivers/media/platform/microchip/Kconfig"
 source "drivers/media/platform/nvidia/Kconfig"
+source "drivers/media/platform/nuvoton/ma35d1/Kconfig"
 source "drivers/media/platform/nxp/Kconfig"
 source "drivers/media/platform/qcom/Kconfig"
 source "drivers/media/platform/renesas/Kconfig"
@@ -92,6 +86,5 @@ source "drivers/media/platform/ti/Kconfig"
 source "drivers/media/platform/verisilicon/Kconfig"
 source "drivers/media/platform/via/Kconfig"
 source "drivers/media/platform/xilinx/Kconfig"
-source "drivers/media/platform/nuvoton/Kconfig"
 
 endif # MEDIA_PLATFORM_DRIVERS

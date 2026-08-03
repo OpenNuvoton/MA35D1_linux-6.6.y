@@ -1,0 +1,32 @@
+/*------------------------------------------------------------------------------
+--                                                                            --
+--       This software is confidential and proprietary and may be used        --
+--        only as expressly authorized by a licensing agreement from          --
+--                                                                            --
+--                            Hantro Products Oy.                             --
+--                                                                            --
+--                   (C) COPYRIGHT 2011 HANTRO PRODUCTS OY                    --
+--                            ALL RIGHTS RESERVED                             --
+--                                                                            --
+--                 The entire notice above must be reproduced                 --
+--                  on all copies and should not be removed.                  --
+--                                                                            --
+--------------------------------------------------------------------------------
+--
+--  Abstract : Utility macros for debugging and tracing
+--
+------------------------------------------------------------------------------*/
+#ifndef __PPDEBUG_H__
+#define __PPDEBUG_H__
+
+/* macro for assertion, used only when _ASSERT_USED is defined */
+#ifdef _ASSERT_USED
+#ifndef ASSERT
+#include <assert.h>
+#define ASSERT(expr) assert(expr)
+#endif
+#else
+#define ASSERT(expr)
+#endif
+
+#endif /* __PPDEBUG_H__ */
