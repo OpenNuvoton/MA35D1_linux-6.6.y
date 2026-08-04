@@ -736,8 +736,9 @@ handleSlicedOutput(struct hantro_ctx *ctx, JpegDecImageInfo *imageInfo,
 	fullSliceCounter++;
 
 	/******** PHASE	X ********/
-	if (jpegIn->sliceMbSet)
-		; // dev_info(ctx->dev->dev, "\nPHASE SLICE: HANDLE SLICE %d\n", fullSliceCounter);
+	if (jpegIn->sliceMbSet) {
+		// dev_info(ctx->dev->dev, "\nPHASE SLICE: HANDLE SLICE %d\n", fullSliceCounter);
+	}
 
 	/* save	start pointers for whole output	*/
 	if (fullSliceCounter == 0) {
@@ -812,14 +813,16 @@ handleSlicedOutput(struct hantro_ctx *ctx, JpegDecImageInfo *imageInfo,
 		frameReady = 0;
 		sliceToUser = 0;
 		/******** PHASE	X ********/
-		if (jpegIn->sliceMbSet)
-			; // dev_info(vpu->dev, "\nPHASE SLICE: HANDLE SLICE %d successful\n", fullSliceCounter);
+		if (jpegIn->sliceMbSet) {
+			// dev_info(vpu->dev, "\nPHASE SLICE: HANDLE SLICE %d successful\n", fullSliceCounter);
+		}
 
 		fullSliceCounter = -1;
 	} else {
 		/******** PHASE	X ********/
-		if(jpegIn->sliceMbSet)
-			; // dev_info(vpu->dev, "\nPHASE SLICE: HANDLE SLICE %d successful\n", fullSliceCounter);
+		if (jpegIn->sliceMbSet) {
+			// dev_info(vpu->dev, "\nPHASE SLICE: HANDLE SLICE %d successful\n", fullSliceCounter);
+		}
 	}
 
 }

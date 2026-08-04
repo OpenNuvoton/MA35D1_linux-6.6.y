@@ -58,6 +58,9 @@ typedef	struct
 
 static hx170dec_t hx170dec_data; /* dynamic allocation?	*/
 
+long DecFlushRegs(hx170dec_t *dev, struct core_desc *core);
+long DecRefreshRegs(hx170dec_t *dev, struct core_desc *core);
+
 static void ResetAsic(hx170dec_t * dev);
 
 

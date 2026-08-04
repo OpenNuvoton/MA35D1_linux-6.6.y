@@ -50,9 +50,11 @@ typedef enum {
 #endif /* HANTRO_FALSE*/
 
 /* macro to get smaller of two values */
+#undef MIN
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
 /* macro to get greater of two values */
+#undef MAX
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 
 typedef struct memAccess {

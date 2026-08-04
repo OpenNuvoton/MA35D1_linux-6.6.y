@@ -156,5 +156,7 @@ void hantro_jpeg_enc_exit(struct hantro_ctx *ctx);
 struct vb2_buffer *hantro_h264_get_ref_buf(struct hantro_ctx *ctx,
 					   unsigned int dpb_idx);
 void hantro_g1_h264_dec_run(struct hantro_ctx *ctx);
+void hantro_g1_jpeg_dec_run(struct hantro_ctx *ctx);
+void hantro_g1_pp_run(struct hantro_ctx *ctx);
 
 #endif /* HANTRO_HW_H_ */

@@ -46,6 +46,7 @@ static int  h264_pp_init(struct hantro_ctx *ctx);
 static int  h264_pp_exit(struct hantro_ctx *ctx);
 static void h264_pp_in_config(struct hantro_ctx *ctx);
 static int  h264_pp_out_config(struct hantro_ctx *ctx);
+void dump_buff_hex(u8 *pucBuff, int nBytes);
 
 void  dump_buff_hex(u8 *pucBuff, int nBytes)
 {

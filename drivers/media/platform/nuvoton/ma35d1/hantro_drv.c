@@ -37,7 +37,7 @@
 #include "hantro_hw.h"
 #include "linux/compat/vc_compat.h"
 
-#define VC8K_VERSION	"1.2.0"
+#define VC8K_VERSION	"1.2.1"
 #define DRIVER_NAME	"ma35d1-vc8000"
 #define DRIVER_DESC	"MA35D1 VC8000 H264/JPEG driver"
 

@@ -607,6 +607,10 @@ void  VC8K_ReleaseDMABuff(struct device *dev)
 }
 EXPORT_SYMBOL(VC8K_ReleaseDMABuff);
 
+void *VC8K_MemAlloc(void *owner, dma_addr_t *dma_addr, int size);
+void *VC8K_MemGetVaddr(void *owner, dma_addr_t dma_addr);
+int VC8K_MemFree(void *owner, dma_addr_t dma_addr);
+
 void *VC8K_MemAlloc(void *owner, dma_addr_t *dma_addr, int size)
 {
 	int i, start; 
