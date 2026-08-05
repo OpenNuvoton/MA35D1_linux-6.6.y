@@ -12,7 +12,7 @@ ccflags-y := -fno-stack-protector \
              -I $(srctree)/drivers/media/platform/nuvoton/ma35d1/linux/ldriver \
              -I $(srctree)/drivers/media/platform/nuvoton/ma35d1/linux/pp
 
-ccflags-y += -include $(src)/linux/vc_kernel_export.h
+ccflags-y += -I $(src)/linux
 
 vc8000-core-blob := $(src)/blob/vc8000_core.o_shipped
 
