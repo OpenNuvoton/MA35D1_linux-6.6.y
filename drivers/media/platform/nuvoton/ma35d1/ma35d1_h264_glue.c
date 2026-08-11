@@ -14,27 +14,24 @@
 
 #include "hantro.h"
 #include "hantro_hw.h"
+#include "vc_codec_abi.h"
 
-#include "basetype.h"
-#include "h264hwd_regdrv.h"
-#include "h264hwd_asic.h"
-//#include "h264hwd_container.h"
-#include "h264decapi.h"
-#include "dwl.h"
-#include "ppinternal.h"
+#include "vc_legacy_types.h"
+#include "vc_dwl_abi.h"
+#include "vc_pp_abi.h"
 
 
 struct h264_ctx {
-	H264DecInfo	decInfo;
-	H264DecInst	decInst;     // is typdef (void *)
-	H264DecInput	decInput;
-	H264DecOutput   decOutput;
-	H264DecPicture  decPicture;
+	struct vc_h264_info	decInfo;
+	vc_codec_handle_t	decInst;     // is typdef (void *)
+	struct vc_h264_input	decInput;
+	struct vc_h264_output   decOutput;
+	struct vc_h264_picture  decPicture;
 	int		eos;
 	int		picDecodeNumber;
 	int		picDisplayNumber;
-	PPInst		ppInst;
-	PPConfig	ppConfig;
+	vc_codec_handle_t		ppInst;
+	struct vc_pp_config	ppConfig;
 	bool		header_parsed;
 };
 
@@ -77,7 +74,7 @@ int ma35d1_vc8k_init(struct hantro_dev *vpu)
 {
 	int ret = 0;
 
-	if (hx170dec_init(vpu) != 0)
+	if (vc_hw_engine_init(vpu) != 0)
 	return -EIO;
 
 	vpu->dcultra_base = ioremap(0x40260000, 0x2000);
@@ -122,29 +119,15 @@ int ma35d1_h264_dec_init(struct hantro_ctx *ctx)
 	hctx->picDisplayNumber = 1;
 	hctx->header_parsed = false;
 
-	err = H264DecInit(&hctx->decInst, 0, DEC_EC_PICTURE_FREEZE, 0,
-			   DEC_REF_FRM_TILED_DEFAULT, 0, 0, 0 );
+	err = vc_codec_h264_create(&hctx->decInst);
 
-	if (err != H264DEC_OK) {
+	if (err != VC_H264_OK) {
 		dev_err(vpu->dev, "H264 DECODER INITIALIZATION FAILED\n");
 		ctx->vc8k_err = -EIO;
 		return -EIO;
 	}
 
-	SetDecRegister(((decContainer_t *) hctx->decInst)->h264Regs, HWIF_DEC_LATENCY,
-		   DEC_X170_LATENCY_COMPENSATION);
-	SetDecRegister(((decContainer_t *) hctx->decInst)->h264Regs, HWIF_DEC_CLK_GATE_E,
-		   DEC_X170_INTERNAL_CLOCK_GATING);
-	SetDecRegister(((decContainer_t *) hctx->decInst)->h264Regs, HWIF_DEC_OUT_TILED_E,
-		   DEC_X170_OUTPUT_FORMAT);
-	SetDecRegister(((decContainer_t *) hctx->decInst)->h264Regs, HWIF_DEC_OUT_ENDIAN,
-		   DEC_X170_OUTPUT_PICTURE_ENDIAN);
-	SetDecRegister(((decContainer_t *) hctx->decInst)->h264Regs, HWIF_DEC_MAX_BURST,
-		   DEC_X170_BUS_BURST_LENGTH);
-	SetDecRegister(((decContainer_t *) hctx->decInst)->h264Regs, HWIF_DEC_DATA_DISC_E,
-		   0);
-	SetDecRegister(((decContainer_t *) hctx->decInst)->h264Regs, HWIF_SERV_MERGE_DIS,
-		   DEC_X170_SERVICE_MERGE_DISABLE);
+	vc_codec_h264_apply_hw_defaults(hctx->decInst);
 
 	_fps_check_jiffy = jiffies;
 	_report_times = 0;
@@ -162,7 +145,7 @@ void ma35d1_h264_dec_exit(struct hantro_ctx *ctx)
 		h264_pp_exit(ctx);
 	}
 
-	H264DecRelease(hctx->decInst);
+	vc_codec_h264_destroy(hctx->decInst);
 
 	if (ctx->vc8k_data != NULL) {
 		kfree(ctx->vc8k_data);
@@ -190,32 +173,32 @@ int ma35d1_h264_dec_run(struct hantro_ctx *ctx)
 	src_buf = hantro_get_src_buf(ctx);
 	dst_buf = hantro_get_dst_buf(ctx);
 
-	hctx->decInput.dataLen = vb2_get_plane_payload(&src_buf->vb2_buf, 0);
-	if (hctx->decInput.dataLen >= 0x200000) {
-		dev_dbg(vpu->dev, "Input len = %d, should be EOS.\n", hctx->decInput.dataLen);
+	hctx->decInput.data_length = vb2_get_plane_payload(&src_buf->vb2_buf, 0);
+	if (hctx->decInput.data_length >= 0x200000) {
+		dev_dbg(vpu->dev, "Input len = %d, should be EOS.\n", hctx->decInput.data_length);
 		dev_dbg(vpu->dev, "src last flag is %d\n", (src_buf->flags & V4L2_BUF_FLAG_LAST) ? 1 : 0);
 		src_buf->flags |= V4L2_BUF_FLAG_LAST;
 		dst_buf->flags |= V4L2_BUF_FLAG_LAST;
 		return 0;
 	}
 
-	hctx->decInput.streamBusAddress = vb2_dma_contig_plane_dma_addr(&src_buf->vb2_buf, 0);
+	hctx->decInput.stream_bus_address = vb2_dma_contig_plane_dma_addr(&src_buf->vb2_buf, 0);
 	if (vpu->vc8k_cfg.use_dev_coherent) {
-		hctx->decInput.pStream = vpu->vc8k_cfg.res_mem_virt +
-					 (hctx->decInput.streamBusAddress -
+		hctx->decInput.stream = vpu->vc8k_cfg.res_mem_virt +
+					 (hctx->decInput.stream_bus_address -
 					 vpu->vc8k_cfg.res_mem_base);
 	} else {
-		hctx->decInput.pStream = phys_to_virt(hctx->decInput.streamBusAddress);
-		dma_sync_single_for_cpu(ctx->dev->dev, hctx->decInput.streamBusAddress,
-				hctx->decInput.dataLen , DMA_FROM_DEVICE);
+		hctx->decInput.stream = phys_to_virt(hctx->decInput.stream_bus_address);
+		dma_sync_single_for_cpu(ctx->dev->dev, hctx->decInput.stream_bus_address,
+				hctx->decInput.data_length , DMA_FROM_DEVICE);
 	}
 
-	// dev_info(vpu->dev, " h264_dec_run - %llx %llx %d, picId = %d\n", (u64)hctx->decInput.pStream,
-	//         (u64)hctx->decInput.streamBusAddress, hctx->decInput.dataLen, hctx->decInput.picId);
+	// dev_info(vpu->dev, " h264_dec_run - %llx %llx %d, picture_id = %d\n", (u64)hctx->decInput.stream,
+	//         (u64)hctx->decInput.stream_bus_address, hctx->decInput.data_length, hctx->decInput.picture_id);
 
-	// dev_info(vpu->dev, "PIC:%d, %d\n", hctx->picDecodeNumber, hctx->decInput.dataLen);
+	// dev_info(vpu->dev, "PIC:%d, %d\n", hctx->picDecodeNumber, hctx->decInput.data_length);
 
-	hctx->decInput.picId = hctx->picDecodeNumber;
+	hctx->decInput.picture_id = hctx->picDecodeNumber;
 
 	mutex_lock(&vpu->lock);
 
@@ -233,36 +216,36 @@ int ma35d1_h264_dec_run(struct hantro_ctx *ctx)
 		// dev_info(vpu->dev, "run-time pp changed.\n");
 		ctx->pp_changed = 0;
 		h264_pp_out_config(ctx);
-		PPSetConfig (hctx->ppInst, &hctx->ppConfig);
+		vc_codec_pp_set_config(hctx->ppInst, &hctx->ppConfig);
 	}
 
-	ret = H264DecDecode(hctx->decInst, &hctx->decInput, &hctx->decOutput);
+	ret = vc_codec_h264_decode(hctx->decInst, &hctx->decInput, &hctx->decOutput);
 	// printDecodeReturn(vpu, ret);
 
-	if (ret == H264DEC_HDRS_RDY) {
+	if (ret == VC_H264_HDRS_RDY) {
 		//dev_info(vpu->dev, "H264 headers were successfully decoded.\n");
-		H264DecGetInfo(hctx->decInst, &hctx->decInfo);
+		vc_codec_h264_get_info(hctx->decInst, &hctx->decInfo);
 
 		dev_dbg(vpu->dev, "Width %d Height %d\n",
-				 hctx->decInfo.picWidth, hctx->decInfo.picHeight);
+				 hctx->decInfo.width, hctx->decInfo.height);
 
 		//dev_info(vpu->dev, "Cropping params: (%d, %d) %dx%d\n",
-		//		 hctx->decInfo.cropParams.cropLeftOffset,
-		//		 hctx->decInfo.cropParams.cropTopOffset,
-		//		 hctx->decInfo.cropParams.cropOutWidth,
-		//		 hctx->decInfo.cropParams.cropOutHeight);
+		//		 hctx->decInfo.crop.left_offset,
+		//		 hctx->decInfo.crop.top_offset,
+		//		 hctx->decInfo.crop.output_width,
+		//		 hctx->decInfo.crop.output_height);
 
-		//dev_info(vpu->dev, "MonoChrome = %d\n", hctx->decInfo.monoChrome);
-		//dev_info(vpu->dev, "Interlaced = %d\n", hctx->decInfo.interlacedSequence);
-		//dev_info(vpu->dev, "DPB mode   = %d\n", hctx->decInfo.dpbMode);
-		//dev_info(vpu->dev, "Pictures in DPB = %d\n", hctx->decInfo.picBuffSize);
-		//dev_info(vpu->dev, "Pictures in Multibuffer PP = %d\n", hctx->decInfo.multiBuffPpSize);
-		if (hctx->decInfo.outputFormat == H264DEC_TILED_YUV420)
-			dev_dbg(vpu->dev, "Output format = H264DEC_TILED_YUV420\n");
-		else if (hctx->decInfo.outputFormat == H264DEC_YUV400)
-			dev_dbg(vpu->dev, "Output format = H264DEC_YUV400\n");
+		//dev_info(vpu->dev, "MonoChrome = %d\n", hctx->decInfo.monochrome);
+		//dev_info(vpu->dev, "Interlaced = %d\n", hctx->decInfo.interlaced_sequence);
+		//dev_info(vpu->dev, "DPB mode   = %d\n", hctx->decInfo.dpb_mode);
+		//dev_info(vpu->dev, "Pictures in DPB = %d\n", hctx->decInfo.picture_buffer_size);
+		//dev_info(vpu->dev, "Pictures in Multibuffer PP = %d\n", hctx->decInfo.pp_multibuffer_size);
+		if (hctx->decInfo.output_format == VC_H264_TILED_YUV420)
+			dev_dbg(vpu->dev, "Output format = VC_H264_TILED_YUV420\n");
+		else if (hctx->decInfo.output_format == VC_H264_YUV400)
+			dev_dbg(vpu->dev, "Output format = VC_H264_YUV400\n");
 		else
-			dev_dbg(vpu->dev, "Output format = H264DEC_SEMIPLANAR_YUV420\n");
+			dev_dbg(vpu->dev, "Output format = VC_H264_SEMIPLANAR_YUV420\n");
 
 		if (ctx->pp_changed == -1) {
 			/* PP of this context was not configured. Use global setting. */
@@ -272,7 +255,7 @@ int ma35d1_h264_dec_run(struct hantro_ctx *ctx)
 		if (ctx->pp_ctx.enable_pp == true) {
 			if (vpu->vc8k_cfg.debug_level > 0)
 				dev_info(vpu->dev, "Init PP (h264_dec_run) %d x %d ==> PP output %d x %d\n",
-					 hctx->decInfo.picWidth, hctx->decInfo.picHeight,
+					 hctx->decInfo.width, hctx->decInfo.height,
 					 ctx->pp_ctx.img_out_w, ctx->pp_ctx.img_out_h);
 			ctx->pp_changed = 0;
 			ret = h264_pp_init(ctx);
@@ -283,8 +266,8 @@ int ma35d1_h264_dec_run(struct hantro_ctx *ctx)
 				return -EINVAL;
 			}
 			h264_pp_in_config(ctx);
-			ret = PPSetConfig (hctx->ppInst, &hctx->ppConfig);
-			if (ret != PP_OK) {
+			ret = vc_codec_pp_set_config(hctx->ppInst, &hctx->ppConfig);
+			if (ret != VC_CODEC_PP_OK) {
 				dev_err(vpu->dev, "h264_dec_run %d - PPSetConfig failed! 0x%x\n", __LINE__, ret);
 				mutex_unlock(&vpu->lock);
 				ctx->vc8k_err = -EINVAL;
@@ -294,70 +277,70 @@ int ma35d1_h264_dec_run(struct hantro_ctx *ctx)
 		else
 			dev_info(vpu->dev, "PP is not enabled!!\n");
 		hctx->header_parsed = true;
-		ret = H264DecDecode(hctx->decInst, &hctx->decInput, &hctx->decOutput);
+		ret = vc_codec_h264_decode(hctx->decInst, &hctx->decInput, &hctx->decOutput);
 		// printDecodeReturn(vpu, ret);
 	}
 
 	switch (ret) {
 
-	case H264DEC_PENDING_FLUSH:
+	case VC_H264_PENDING_FLUSH:
 	//eos = 1;
 
-	case H264DEC_PIC_DECODED:
+	case VC_H264_PIC_DECODED:
 	hctx->picDecodeNumber++;
 
 	/* if output in display order is preferred, the decoder shall be forced
 	 * to output pictures remaining in decoded picture buffer. Use function
-	 * H264DecNextPicture() to obtain next picture in display order. Function
+	 * vc_codec_h264_next_picture() to obtain next picture in display order. Function
 	 * is called until no more images are ready for display. Second parameter
 	 * for the function is set to '1' to indicate that this is end of the
 	 * stream and all pictures shall be output
 	 */
-	while (H264DecNextPicture(hctx->decInst, &hctx->decPicture, hctx->eos) == H264DEC_PIC_RDY) {
+	while (vc_codec_h264_next_picture(hctx->decInst, &hctx->decPicture, hctx->eos) == VC_H264_PIC_RDY) {
 		//dev_info(vpu->dev, "PIC %d, view %d, type [%s:%s], ",
 		//	 hctx->picDisplayNumber,
-		//	 hctx->decPicture.viewId,
-		//	 hctx->decPicture.isIdrPicture[0] ? "IDR" : "NON-IDR",
-		//	 hctx->decPicture.isIdrPicture[1] ? "IDR" : "NON-IDR");
+		//	 hctx->decPicture.view_id,
+		//	 hctx->decPicture.is_idr[0] ? "IDR" : "NON-IDR",
+		//	 hctx->decPicture.is_idr[1] ? "IDR" : "NON-IDR");
 		/* pic coding type */
-		// printH264PicCodingType(vpu, hctx->decPicture.picCodingType);
-		if (hctx->picDisplayNumber != hctx->decPicture.picId) {
-			// dev_info(vpu->dev, ", decoded pic %d", hctx->decPicture.picId);
+		// printH264PicCodingType(vpu, hctx->decPicture.coding_type);
+		if (hctx->picDisplayNumber != hctx->decPicture.picture_id) {
+			// dev_info(vpu->dev, ", decoded pic %d", hctx->decPicture.picture_id);
 		}
 
-		if (hctx->decPicture.nbrOfErrMBs) {
-			// dev_info(vpu->dev, ", concealed %d", hctx->decPicture.nbrOfErrMBs);
+		if (hctx->decPicture.error_macroblocks) {
+			// dev_info(vpu->dev, ", concealed %d", hctx->decPicture.error_macroblocks);
 		}
 
 		if (hctx->decPicture.interlaced) {
 			// dev_info(vpu->dev, ", INTERLACED ");
-			if (hctx->decPicture.fieldPicture) {
+			if (hctx->decPicture.field_picture) {
 				//dev_info(vpu->dev, "FIELD %s",
-				//		hctx->decPicture.topField ? "TOP" : "BOTTOM");
+				//		hctx->decPicture.top_field ? "TOP" : "BOTTOM");
 
-				//SetMissingField2Const((u8*)decPicture.pOutputPicture,
-				//                      decInfo.picWidth,
-				//                      decInfo.picHeight,
-				//                      decInfo.monoChrome,
-				//                      !decPicture.topField );
+				//SetMissingField2Const((u8*)decPicture.output_picture,
+				//                      decInfo.width,
+				//                      decInfo.height,
+				//                      decInfo.monochrome,
+				//                      !decPicture.top_field );
 			} else	{
 				//dev_info(vpu->dev, "FRAME");
 			}
 		}
 
 		//dev_info(vpu->dev, ", Crop: (%d, %d), %dx%d\n",
-		//        decPicture.cropParams.cropLeftOffset,
-		//        decPicture.cropParams.cropTopOffset,
-		//        decPicture.cropParams.cropOutWidth,
-		//        decPicture.cropParams.cropOutHeight);
+		//        decPicture.crop.left_offset,
+		//        decPicture.crop.top_offset,
+		//        decPicture.crop.output_width,
+		//        decPicture.crop.output_height);
 
-		// numErrors += decPicture.nbrOfErrMBs;
+		// numErrors += decPicture.error_macroblocks;
 
 		/*lint -esym(644, decInfo) always initialized if pictures
 		 * available for display */
 
 		/* Write output picture to file */
-		// imageData = (u8 *) decPicture.pOutputPicture;
+		// imageData = (u8 *) decPicture.output_picture;
 
 		if (ctx->pp_ctx.enable_pp == false) {
 			u8	*dst_data, *out_pic, *u_plane, *v_plane;
@@ -367,10 +350,10 @@ int ma35d1_h264_dec_run(struct hantro_ctx *ctx)
 			for (i = 0; i < dst_buf->vb2_buf.num_planes; i++) {
 				sizeimage += ctx->dst_fmt.plane_fmt[i].sizeimage;
 			}
-			out_pic = (u8 *)hctx->decPicture.pOutputPicture;
+			out_pic = (u8 *)hctx->decPicture.output_picture;
 
 			//if (!vpu->vc8k_cfg.use_dev_coherent)
-			//	dma_sync_single_for_cpu(ctx->dev->dev, hctx->decPicture.outputPictureBusAddress,
+			//	dma_sync_single_for_cpu(ctx->dev->dev, hctx->decPicture.output_picture_bus_address,
 			//				sizeimage, DMA_TO_DEVICE);
 
 			/* Copy Y-plane */
@@ -415,19 +398,19 @@ int ma35d1_h264_dec_run(struct hantro_ctx *ctx)
 	}
 	break;
 
-	case H264DEC_STRM_PROCESSED:
-	case H264DEC_BUF_EMPTY:
-	case H264DEC_NONREF_PIC_SKIPPED:
-	case H264DEC_STRM_ERROR:
+	case VC_H264_STRM_PROCESSED:
+	case VC_H264_BUF_EMPTY:
+	case VC_H264_NONREF_PIC_SKIPPED:
+	case VC_H264_STRM_ERROR:
 	/* Used to indicate that picture decoding needs to finalized prior to corrupting next picture
 	 * picRdy = 0;
 	 */
 	break;
 
-	case H264DEC_OK:
+	case VC_H264_OK:
 	/* nothing to do, just call again */
 	break;
-	case H264DEC_HW_TIMEOUT:
+	case VC_H264_HW_TIMEOUT:
 	dev_err(vpu->dev, "H264 HW Timeout\n");
 	break;
 
@@ -439,8 +422,8 @@ int ma35d1_h264_dec_run(struct hantro_ctx *ctx)
 	return ret;
 	}
 
-	if (hctx->decOutput.dataLeft != 0)
-	  dev_warn(vpu->dev, " decOutput.dataLeft = %d\n", hctx->decOutput.dataLeft);
+	if (hctx->decOutput.data_left != 0)
+	  dev_warn(vpu->dev, " decOutput.data_left = %d\n", hctx->decOutput.data_left);
 
 	mutex_unlock(&vpu->lock);
 	return 0;
@@ -458,45 +441,45 @@ EXPORT_SYMBOL(ma35d1_h264_dec_run);
 static void __maybe_unused printDecodeReturn(struct hantro_dev *vpu, i32 retval)
 {
 
-	dev_dbg(vpu->dev, " >>> H264DecDecode returned: ");
+	dev_dbg(vpu->dev, " >>> vc_codec_h264_decode returned: ");
 	switch (retval)
 	{
 
-	case H264DEC_OK:
-	dev_dbg(vpu->dev, "H264DEC_OK\n");
+	case VC_H264_OK:
+	dev_dbg(vpu->dev, "VC_H264_OK\n");
 	break;
-	case H264DEC_NONREF_PIC_SKIPPED:
-	dev_dbg(vpu->dev, "H264DEC_NONREF_PIC_SKIPPED\n");
+	case VC_H264_NONREF_PIC_SKIPPED:
+	dev_dbg(vpu->dev, "VC_H264_NONREF_PIC_SKIPPED\n");
 	break;
-	case H264DEC_STRM_PROCESSED:
-	dev_dbg(vpu->dev, "H264DEC_STRM_PROCESSED\n");
+	case VC_H264_STRM_PROCESSED:
+	dev_dbg(vpu->dev, "VC_H264_STRM_PROCESSED\n");
 	break;
-	case H264DEC_BUF_EMPTY:
-	dev_dbg(vpu->dev, "H264DEC_BUF_EMPTY\n");
+	case VC_H264_BUF_EMPTY:
+	dev_dbg(vpu->dev, "VC_H264_BUF_EMPTY\n");
 	break;
-	case H264DEC_PIC_RDY:
-	dev_dbg(vpu->dev, "H264DEC_PIC_RDY\n");
+	case VC_H264_PIC_RDY:
+	dev_dbg(vpu->dev, "VC_H264_PIC_RDY\n");
 	break;
-	case H264DEC_PIC_DECODED:
-	dev_dbg(vpu->dev, "H264DEC_PIC_DECODED\n");
+	case VC_H264_PIC_DECODED:
+	dev_dbg(vpu->dev, "VC_H264_PIC_DECODED\n");
 	break;
-	case H264DEC_ADVANCED_TOOLS:
-	dev_dbg(vpu->dev, "H264DEC_ADVANCED_TOOLS\n");
+	case VC_H264_ADVANCED_TOOLS:
+	dev_dbg(vpu->dev, "VC_H264_ADVANCED_TOOLS\n");
 	break;
-	case H264DEC_HDRS_RDY:
-	dev_dbg(vpu->dev, "H264DEC_HDRS_RDY\n");
+	case VC_H264_HDRS_RDY:
+	dev_dbg(vpu->dev, "VC_H264_HDRS_RDY\n");
 	break;
-	case H264DEC_STREAM_NOT_SUPPORTED:
-	dev_dbg(vpu->dev, "H264DEC_STREAM_NOT_SUPPORTED\n");
+	case VC_H264_STREAM_NOT_SUPPORTED:
+	dev_dbg(vpu->dev, "VC_H264_STREAM_NOT_SUPPORTED\n");
 	break;
-	case H264DEC_DWL_ERROR:
-	dev_dbg(vpu->dev, "H264DEC_DWL_ERROR\n");
+	case VC_H264_DWL_ERROR:
+	dev_dbg(vpu->dev, "VC_H264_DWL_ERROR\n");
 	break;
-	case H264DEC_HW_TIMEOUT:
-	dev_dbg(vpu->dev, "H264DEC_HW_TIMEOUT\n");
+	case VC_H264_HW_TIMEOUT:
+	dev_dbg(vpu->dev, "VC_H264_HW_TIMEOUT\n");
 	break;
-	case H264DEC_PENDING_FLUSH:
-	dev_dbg(vpu->dev, "H264DEC_PENDING_FLUSH\n");
+	case VC_H264_PENDING_FLUSH:
+	dev_dbg(vpu->dev, "VC_H264_PENDING_FLUSH\n");
 	break;
 	default:
 	dev_dbg(vpu->dev, "Other %d\n", retval);
@@ -554,22 +537,22 @@ static int h264_pp_init(struct hantro_ctx *ctx)
 	//for (i = 60; i <= 100; i++)
 	//	vc8k_write_swreg(0, i);
 
-	ret = PPInit (&hctx->ppInst);
-	if (ret != PP_OK) {
+	ret = vc_codec_pp_create(&hctx->ppInst);
+	if (ret != VC_CODEC_PP_OK) {
 		dev_err(vpu->dev, "%s - failed to create PP\n", __func__);
 		return -1;
 	}
 
-	ret = PPDecCombinedModeEnable (hctx->ppInst, hctx->decInst, PP_PIPELINED_DEC_TYPE_H264);
-	if (ret != PP_OK) {
+	ret = vc_codec_pp_enable_combined(hctx->ppInst, hctx->decInst, VC_CODEC_PP_TYPE_H264);
+	if (ret != VC_CODEC_PP_OK) {
 		dev_err(vpu->dev, "%s - failed to enable combined mode\n", __func__);
 		goto cleanup_pp;
 	}
 
 	// get the current default PP config
 	memset (&hctx->ppConfig, 0, sizeof(hctx->ppConfig));
-	ret = PPGetConfig (hctx->ppInst, &hctx->ppConfig);
-	if (ret != PP_OK) {
+	ret = vc_codec_pp_get_config(hctx->ppInst, &hctx->ppConfig);
+	if (ret != VC_CODEC_PP_OK) {
 		dev_err(vpu->dev, "%s - failed to get default PP config\n", __func__);
 		goto cleanup_combined;
 	}
@@ -581,10 +564,10 @@ static int h264_pp_init(struct hantro_ctx *ctx)
 	return 0;
 
 cleanup_combined:
-	PPDecCombinedModeDisable (hctx->ppInst, hctx->decInst);
+	vc_codec_pp_disable_combined(hctx->ppInst, hctx->decInst);
 
 cleanup_pp:
-	PPRelease(hctx->ppInst);
+	vc_codec_pp_release(hctx->ppInst);
 	return ret;
 }
 
@@ -592,8 +575,8 @@ static int h264_pp_exit(struct hantro_ctx *ctx)
 {
 	struct h264_ctx  *hctx = ctx->vc8k_data;
 
-	PPDecCombinedModeDisable (hctx->ppInst, hctx->decInst);
-	PPRelease(hctx->ppInst);
+	vc_codec_pp_disable_combined(hctx->ppInst, hctx->decInst);
+	vc_codec_pp_release(hctx->ppInst);
 	return 0;
 }
 
@@ -603,55 +586,55 @@ static int h264_pp_out_config(struct hantro_ctx *ctx)
 	struct h264_ctx  *hctx = ctx->vc8k_data;
 	struct vc8k_pp_params *pp = &(ctx->pp_ctx);
 
-	hctx->ppConfig.ppInRotation.rotation = pp->rotation;
-	hctx->ppConfig.ppOutImg.width = pp->img_out_w;
-	hctx->ppConfig.ppOutImg.height = pp->img_out_h;
+	hctx->ppConfig.input_rotation = pp->rotation;
+	hctx->ppConfig.output.width = pp->img_out_w;
+	hctx->ppConfig.output.height = pp->img_out_h;
 
 	if ((pp->img_out_x != 0) || (pp->img_out_y != 0) ||
 		(pp->img_out_w != pp->frame_buf_w) || (pp->img_out_h != pp->frame_buf_h)) {
-		hctx->ppConfig.ppOutFrmBuffer.enable = 1;
-		hctx->ppConfig.ppOutFrmBuffer.writeOriginX = pp->img_out_x;
-		hctx->ppConfig.ppOutFrmBuffer.writeOriginY = pp->img_out_y;
-		hctx->ppConfig.ppOutFrmBuffer.frameBufferWidth = pp->frame_buf_w;
-		hctx->ppConfig.ppOutFrmBuffer.frameBufferHeight = pp->frame_buf_h;
+		hctx->ppConfig.framebuffer.enable = 1;
+		hctx->ppConfig.framebuffer.write_origin_x = pp->img_out_x;
+		hctx->ppConfig.framebuffer.write_origin_y = pp->img_out_y;
+		hctx->ppConfig.framebuffer.width = pp->frame_buf_w;
+		hctx->ppConfig.framebuffer.height = pp->frame_buf_h;
 	}
 
 	if (pp->img_out_fmt == V4L2_PIX_FMT_NV12) {
-		hctx->ppConfig.ppOutImg.pixFormat = PP_PIX_FMT_YCBCR_4_2_0_SEMIPLANAR;
+		hctx->ppConfig.output.pix_format = VC_PP_PIX_FMT_YCBCR_4_2_0_SEMIPLANAR;
 	} else {
 		/*
 		 * PP output RGB format
 		 */
-		hctx->ppConfig.ppOutRgb.rgbTransform = PP_YCBCR2RGB_TRANSFORM_CUSTOM;
-		hctx->ppConfig.ppOutRgb.alpha = 0xFF;
-		hctx->ppConfig.ppOutRgb.rgbTransformCoeffs.a = 298;
-		hctx->ppConfig.ppOutRgb.rgbTransformCoeffs.b = 409;
-		hctx->ppConfig.ppOutRgb.rgbTransformCoeffs.c = 208;
-		hctx->ppConfig.ppOutRgb.rgbTransformCoeffs.d = 100;
-		hctx->ppConfig.ppOutRgb.rgbTransformCoeffs.e = 516;
-		hctx->ppConfig.ppOutRgb.ditheringEnable = 1;
+		hctx->ppConfig.rgb.transform = VC_PP_YCBCR2RGB_TRANSFORM_CUSTOM;
+		hctx->ppConfig.rgb.alpha = 0xFF;
+		hctx->ppConfig.rgb.coefficients.a = 298;
+		hctx->ppConfig.rgb.coefficients.b = 409;
+		hctx->ppConfig.rgb.coefficients.c = 208;
+		hctx->ppConfig.rgb.coefficients.d = 100;
+		hctx->ppConfig.rgb.coefficients.e = 516;
+		hctx->ppConfig.rgb.dithering_enable = 1;
 
 		if (pp->img_out_fmt == V4L2_PIX_FMT_RGB565) {
-			hctx->ppConfig.ppOutImg.pixFormat = PP_PIX_FMT_RGB16_5_6_5;
+			hctx->ppConfig.output.pix_format = VC_PP_PIX_FMT_RGB16_5_6_5;
 		} else {
 			/*
 			 * should be RGB888, no need to check
 			 */
-			hctx->ppConfig.ppOutImg.pixFormat  = PP_PIX_FMT_RGB32;
+			hctx->ppConfig.output.pix_format  = VC_PP_PIX_FMT_RGB32;
 		}
 	}
 
 	if (pp->pp_out_dst == 1)
-		hctx->ppConfig.ppOutImg.bufferBusAddr = readl_relaxed(vpu->dcultra_base + 0x15C0);
+		hctx->ppConfig.output.buffer_bus_addr = readl_relaxed(vpu->dcultra_base + 0x15C0);
 	else
-		hctx->ppConfig.ppOutImg.bufferBusAddr = readl_relaxed(vpu->dcultra_base + 0x1400);
-	hctx->ppConfig.ppOutImg.bufferChromaBusAddr = hctx->ppConfig.ppOutImg.bufferBusAddr +
-			hctx->ppConfig.ppOutImg.width * hctx->ppConfig.ppOutImg.height;
+		hctx->ppConfig.output.buffer_bus_addr = readl_relaxed(vpu->dcultra_base + 0x1400);
+	hctx->ppConfig.output.buffer_chroma_bus_addr = hctx->ppConfig.output.buffer_bus_addr +
+			hctx->ppConfig.output.width * hctx->ppConfig.output.height;
 
-	if ((hctx->ppConfig.ppOutImg.bufferBusAddr < 0x80000000UL) ||
-	    (hctx->ppConfig.ppOutImg.bufferBusAddr > 0xC0000000UL)) {
+	if ((hctx->ppConfig.output.buffer_bus_addr < 0x80000000UL) ||
+	    (hctx->ppConfig.output.buffer_bus_addr > 0xC0000000UL)) {
 		dev_err(vpu->dev, "%s - Invalid PP output address! 0x%llx\n",
-			__func__, hctx->ppConfig.ppOutImg.bufferBusAddr);
+			__func__, hctx->ppConfig.output.buffer_bus_addr);
 		return -1;
 	}
 	return 0;
@@ -663,9 +646,9 @@ static void h264_pp_in_config(struct hantro_ctx *ctx)
 
 	h264_pp_out_config(ctx);
 
-	hctx->ppConfig.ppInCrop.enable = 0;   /* crop is not supported in current release */
-	hctx->ppConfig.ppInImg.videoRange = 1;
-	hctx->ppConfig.ppInImg.width = hctx->decInfo.picWidth;
-	hctx->ppConfig.ppInImg.height = hctx->decInfo.picHeight;
-	hctx->ppConfig.ppInImg.pixFormat = PP_PIX_FMT_YCBCR_4_2_0_SEMIPLANAR;
+	hctx->ppConfig.input_crop_enable = 0;   /* crop is not supported in current release */
+	hctx->ppConfig.input.video_range = 1;
+	hctx->ppConfig.input.width = hctx->decInfo.width;
+	hctx->ppConfig.input.height = hctx->decInfo.height;
+	hctx->ppConfig.input.pix_format = VC_PP_PIX_FMT_YCBCR_4_2_0_SEMIPLANAR;
 }

@@ -214,7 +214,7 @@ static irqreturn_t ma35d1_vdpu_irq(int irq, void *dev_id)
 
 		//if (status & (1 << 24))
 		//	vpu->B_slice_detected = true;
-		hx170dec_isr();
+		vc_hw_engine_irq();
 		vdpu_write(vpu, 0, G1_REG_INTERRUPT);
 	}
 
@@ -224,7 +224,7 @@ static irqreturn_t ma35d1_vdpu_irq(int irq, void *dev_id)
 				VB2_BUF_STATE_DONE : VB2_BUF_STATE_ERROR;
 		if (vpu->dec_state != VB2_BUF_STATE_DONE)
 			dev_err(vpu->dev, "%d DECODE ERROR !!  0x%x\n", __LINE__, status);
-		hx170dec_isr();
+		vc_hw_engine_irq();
 		vdpu_write(vpu, 0, 60 * 4);  // clear swreg60
 		if (vpu->dcultra_base)
 			writel_relaxed(readl_relaxed(vpu->dcultra_base + 0x1518) | 0x11,
@@ -345,4 +345,3 @@ const struct hantro_variant ma35d1_vpu_variant = {
 	.num_clocks = ARRAY_SIZE(ma35d1_vc8k_clk_names)
 };
 EXPORT_SYMBOL(ma35d1_vpu_variant);
-

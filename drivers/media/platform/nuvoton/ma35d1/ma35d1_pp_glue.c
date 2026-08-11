@@ -13,11 +13,10 @@
 #include "hantro.h"
 #include "hantro_hw.h"
 
-#include "basetype.h"
-#include "linux/vc_os_linux.h"
-#include "h264hwd_regdrv.h"
-#include "dwl.h"
-#include "ppinternal.h"
+#include "vc_legacy_types.h"
+#include "vc_os_linux.h"
+#include "vc_dwl_abi.h"
+#include "vc_codec_abi.h"
 
 
 typedef enum {
@@ -100,13 +99,13 @@ int ma35d1_pp_run(struct hantro_ctx *ctx)
 	/*-------------------------------------------------------------*/
 	/*  write PP swreg79                                           */
 	/*-------------------------------------------------------------*/
-	reg_val = FDIVI(TOFIX((dst_pix_mp->width - 1), 16), (src_pix_mp->width - 1));
+	reg_val = VC_CODEC_PP_FIXED_DIV(VC_CODEC_PP_TO_FIXED((dst_pix_mp->width - 1), 16), (src_pix_mp->width - 1));
 	vc_os_mmio_write32(79, reg_val);
 
 	/*-------------------------------------------------------------*/
 	/*  write PP swreg80                                           */
 	/*-------------------------------------------------------------*/
-	reg_val = FDIVI(TOFIX((dst_pix_mp->height - 1), 16), (src_pix_mp->height - 1));
+	reg_val = VC_CODEC_PP_FIXED_DIV(VC_CODEC_PP_TO_FIXED((dst_pix_mp->height - 1), 16), (src_pix_mp->height - 1));
 
 	if (dst_pix_mp->height > src_pix_mp->height)
 		reg_val |= (0x1 << 23);		/* vertical upscale */
@@ -123,21 +122,21 @@ int ma35d1_pp_run(struct hantro_ctx *ctx)
 	/*-------------------------------------------------------------*/
 	/*  write PP swreg81                                           */
 	/*-------------------------------------------------------------*/
-	reg_val = FDIVI(TOFIX((src_pix_mp->width - 1), 16), (dst_pix_mp->width - 1));
+	reg_val = VC_CODEC_PP_FIXED_DIV(VC_CODEC_PP_TO_FIXED((src_pix_mp->width - 1), 16), (dst_pix_mp->width - 1));
 	reg_val = (reg_val << 16) | 
-		  (FDIVI(TOFIX((src_pix_mp->height - 1), 16), (dst_pix_mp->height - 1)));
+		  (VC_CODEC_PP_FIXED_DIV(VC_CODEC_PP_TO_FIXED((src_pix_mp->height - 1), 16), (dst_pix_mp->height - 1)));
 	vc_os_mmio_write32(81, reg_val);
 	
 	/*-------------------------------------------------------------*/
 	/*  write PP swreg85                                           */
 	/*-------------------------------------------------------------*/
 	reg_val = 0;
-	reg_val |= (PP_ASIC_IN_FORMAT_420_SEMIPLANAR << 29);
+	reg_val |= (VC_CODEC_PP_ASIC_IN_FORMAT_420_SEMIPLANAR << 29);
 	
 	if (src_pix_mp->pixelformat == V4L2_PIX_FMT_NV12)
-		reg_val |= (PP_ASIC_OUT_FORMAT_420 << 26);
+		reg_val |= (VC_CODEC_PP_ASIC_OUT_FORMAT_420 << 26);
 	else if (src_pix_mp->pixelformat == V4L2_PIX_FMT_YUV420)
-		reg_val |= (PP_ASIC_OUT_FORMAT_420 << 26);
+		reg_val |= (VC_CODEC_PP_ASIC_OUT_FORMAT_420 << 26);
 	
 	reg_val |= (dst_pix_mp->height << 15);
 	reg_val |= (dst_pix_mp->width << 4);

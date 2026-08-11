@@ -4,15 +4,10 @@
 #
 
 ccflags-y := -fno-stack-protector \
-             -I $(srctree)/drivers/media/platform/nuvoton/ma35d1 \
-             -I $(srctree)/drivers/media/platform/nuvoton/ma35d1/exported_headers \
-             -I $(srctree)/drivers/media/platform/nuvoton/ma35d1/exported_headers/legacy \
-             -I $(srctree)/drivers/media/platform/nuvoton/ma35d1/linux/h264high \
-             -I $(srctree)/drivers/media/platform/nuvoton/ma35d1/linux/dwl \
-             -I $(srctree)/drivers/media/platform/nuvoton/ma35d1/linux/ldriver \
-             -I $(srctree)/drivers/media/platform/nuvoton/ma35d1/linux/pp
+	     -I $(srctree)/drivers/media/platform/nuvoton/ma35d1 \
+	     -I $(srctree)/drivers/media/platform/nuvoton/ma35d1/exported_headers
 
-ccflags-y += -I $(src)/linux
+ccflags-y += -I $(src)
 
 vc8000-core-blob := $(src)/blob/vc8000_core.o_shipped
 
@@ -24,10 +19,12 @@ ma35-vc8000-objs += \
 		ma35d1_h264_glue.o \
 		ma35d1_jpeg_glue.o \
 		ma35d1_pp_glue.o \
-		linux/dwl/dwl_linux_sc.o \
-		linux/vc_os_linux.o \
-		linux/dwl/dwl_linux.o \
-		linux/ldriver/hx170dec.o \
+		vc_dwl_control.o \
+		vc_dwl_hw.o \
+		vc_dwl_memory.o \
+		vc_dwl_caps.o \
+		vc_hw_engine.o \
+		vc_os_linux.o \
 		vc8000_core_link.o
 
 quiet_cmd_vc8000_core = COPY    $@

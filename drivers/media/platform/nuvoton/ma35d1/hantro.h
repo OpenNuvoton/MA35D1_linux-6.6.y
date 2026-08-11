@@ -466,9 +466,9 @@ extern void ma35d1_jpeg_dec_exit(struct hantro_ctx *ctx);
 extern int ma35d1_pp_init(struct hantro_ctx *ctx);
 extern int ma35d1_pp_run(struct hantro_ctx *ctx);
 
-extern int  hx170dec_init(struct hantro_dev *vpu);
-extern long hx170dec_ioctl(unsigned int cmd,  void *arg);
-extern void hx170dec_isr(void);
+extern int vc_hw_engine_init(struct hantro_dev *vpu);
+extern long vc_hw_engine_command(unsigned int command, void *argument);
+extern void vc_hw_engine_irq(void);
 
 
 #endif /* HANTRO_H_ */
