@@ -1,0 +1,10 @@
+arch/arm64/boot/dts/nuvoton/ma35d1-iot-128m.dtb
+arch/arm64/boot/dts/nuvoton/ma35d1-iot-256m.dtb
+arch/arm64/boot/dts/nuvoton/ma35d1-iot-512m.dtb
+arch/arm64/boot/dts/nuvoton/ma35d1-som-256m.dtb
+arch/arm64/boot/dts/nuvoton/ma35d1-som-512m.dtb
+arch/arm64/boot/dts/nuvoton/ma35d1-som-1g.dtb
+arch/arm64/boot/dts/nuvoton/ma35d1-som-2g.dtb
+arch/arm64/boot/dts/nuvoton/ma35d1-hmi-512m.dtb
+arch/arm64/boot/dts/nuvoton/ma35d1-iot-ma35d16fj0-v1-512m.dtb
+arch/arm64/boot/dts/nuvoton/ma35d0-iot-ma35d05ki1-v1-256m.dtb
