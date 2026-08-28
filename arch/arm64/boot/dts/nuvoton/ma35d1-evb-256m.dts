@@ -213,7 +213,7 @@
 &i2c1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_i2c1>;
-	status = "disable";
+	status = "disabled";
 
 	lt8718: edp-bridge@66 {
 		compatible = "nvt, lt8718";
@@ -233,7 +233,7 @@
 		reg = <0x40>;
 		clocks = <&clk DCUP_DIV>;
 		nuvoton,disp = <&display>;
-		status = "disable";
+		status = "disabled";
 	};
 };
 

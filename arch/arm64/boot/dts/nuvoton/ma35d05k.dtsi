@@ -360,7 +360,7 @@
 		clock-names = "hclk", "cclk";
 		bosch,mram-cfg = <0x0 4 4 32 32 32 8 8>;
 
-		status = "disable";
+		status = "disabled";
 	};
 
 	can1: can@403D0000 {
@@ -375,7 +375,7 @@
 		clock-names = "hclk", "cclk";
 		bosch,mram-cfg = <0x0 4 4 32 32 32 8 8>;
 
-		status = "disable";
+		status = "disabled";
 	};
 
 	can2: can@403E0000 {
@@ -390,7 +390,7 @@
 		clock-names = "hclk", "cclk";
 		bosch,mram-cfg = <0x0 4 4 32 32 32 8 8>;
 
-		status = "disable";
+		status = "disabled";
 	};
 
 	can3: can@403F0000 {
@@ -405,7 +405,7 @@
 		clock-names = "hclk", "cclk";
 		bosch,mram-cfg = <0x0 4 4 32 32 32 8 8>;
 
-		status = "disable";
+		status = "disabled";
 	};
 
 	ehci0: ehci@40140000 {
@@ -583,7 +583,7 @@
 		clocks = <&clk I2C1_GATE>;
 		clock-frequency = <100000>;
 		resets = <&reset MA35D1_RESET_I2C1>;
-		status = "disable";
+		status = "disabled";
 		#address-cells = <1>;
 		#size-cells = <0>;
 	};
@@ -621,7 +621,7 @@
 		resets = <&reset MA35D1_RESET_I2C4>;
 		#address-cells = <1>;
 		#size-cells = <0>;
-		status = "disable";
+		status = "disabled";
 	};
 
 	i2c5: i2c@40850000 {
@@ -633,7 +633,7 @@
 		resets = <&reset MA35D1_RESET_I2C5>;
 		#address-cells = <1>;
 		#size-cells = <0>;
-		status = "disable";
+		status = "disabled";
 	};
 
 	i2s0: i2s@40480000 {
@@ -644,7 +644,7 @@
 		resets = <&reset MA35D1_RESET_I2S0>;
 		pdma_reqsel_tx = <86>;
 		pdma_reqsel_rx = <87>;
-		status = "disable";
+		status = "disabled";
 	};
 
 	i2s1: i2s@40490000 {
@@ -655,19 +655,19 @@
 		resets = <&reset MA35D1_RESET_I2S1>;
 		pdma_reqsel_tx = <88>;
 		pdma_reqsel_rx = <89>;
-		status = "disable";
+		status = "disabled";
 	};
 
 	i2s_pcm: i2s_pcm {
 		compatible = "nuvoton,ma35d1-audio-pcm";
-		status = "disable";
+		status = "disabled";
 	};
 
 	sound: sound {
 		compatible = "nuvoton,ma35d1-audio";
 		i2s-controller = <&i2s0>;
 		i2s-platform = <&i2s_pcm>;
-		status = "disable";
+		status = "disabled";
 	};
 
 	hwsem: hwspinlock@40380000 {
@@ -702,7 +702,7 @@
 		compatible = "nuvoton,ma35d1-rproc";
 		resets = <&reset MA35D1_RESET_CM4>;
 		memory-region = <&rproc_buf>;
-		status = "disable";
+		status = "disabled";
 	};
 #endif
 	ampm: ampm {
@@ -1186,7 +1186,7 @@
 		g-np-tx-fifo-size = <16>;
 		g-rx-fifo-size = <0x100>;
 		g-tx-fifo-size = <256 256 64 64 64 32 32 32>;
-		status = "disable";
+		status = "disabled";
 	};
 
 	usb_phy: usb-phy {
