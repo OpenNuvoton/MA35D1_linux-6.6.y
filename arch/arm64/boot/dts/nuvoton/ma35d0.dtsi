@@ -502,14 +502,16 @@
 	};
 
 	i2s0: i2s@40480000 {
-		compatible = "nuvoton,ma35d0-audio-i2s";
+		compatible = "nuvoton,ma35d0-i2s";
 		reg = <0x0 0x40480000 0x0 0x10000>;
 		interrupts = <GIC_SPI 70 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk I2S0_GATE>;
 		resets = <&reset MA35D0_RESET_I2S0>;
-		pdma_reqsel_tx = <86>;
-		pdma_reqsel_rx = <87>;
-		mclk_out = <12000000>;
+		dmas = <&pdma0 0>, <&pdma0 1>;
+		dma-names = "tx", "rx";
+		nuvoton,pdma-reqsel-tx = <86>;
+		nuvoton,pdma-reqsel-rx = <87>;
+		#sound-dai-cells = <0>;
 		status = "disabled";
 	};
 

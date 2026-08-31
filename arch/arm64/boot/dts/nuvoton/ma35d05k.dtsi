@@ -637,36 +637,30 @@
 	};
 
 	i2s0: i2s@40480000 {
-		compatible = "nuvoton,ma35d1-audio-i2s";
+		compatible = "nuvoton,ma35d0-i2s";
 		reg = <0x0 0x40480000 0x0 0x10000>;
 		interrupts = <GIC_SPI 70 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk I2S0_GATE>;
 		resets = <&reset MA35D1_RESET_I2S0>;
-		pdma_reqsel_tx = <86>;
-		pdma_reqsel_rx = <87>;
+		dmas = <&pdma0 0>, <&pdma0 1>;
+		dma-names = "tx", "rx";
+		nuvoton,pdma-reqsel-tx = <86>;
+		nuvoton,pdma-reqsel-rx = <87>;
+		#sound-dai-cells = <0>;
 		status = "disabled";
 	};
 
 	i2s1: i2s@40490000 {
-		compatible = "nuvoton,ma35d1-audio-i2s";
+		compatible = "nuvoton,ma35d0-i2s";
 		reg = <0x0 0x40490000 0x0 0x10000>;
 		interrupts = <GIC_SPI 99 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk I2S1_GATE>;
 		resets = <&reset MA35D1_RESET_I2S1>;
-		pdma_reqsel_tx = <88>;
-		pdma_reqsel_rx = <89>;
-		status = "disabled";
-	};
-
-	i2s_pcm: i2s_pcm {
-		compatible = "nuvoton,ma35d1-audio-pcm";
-		status = "disabled";
-	};
-
-	sound: sound {
-		compatible = "nuvoton,ma35d1-audio";
-		i2s-controller = <&i2s0>;
-		i2s-platform = <&i2s_pcm>;
+		dmas = <&pdma0 2>, <&pdma0 3>;
+		dma-names = "tx", "rx";
+		nuvoton,pdma-reqsel-tx = <88>;
+		nuvoton,pdma-reqsel-rx = <89>;
+		#sound-dai-cells = <0>;
 		status = "disabled";
 	};
 
