@@ -176,9 +176,10 @@
 
 	#address-cells = <1>;
 	#size-cells = <0>;
-	nau8822: nau8822@1a {
+	nau8822: codec@1a {
 		compatible = "nuvoton,nau8822";
-		reg = <0x1a> ;
+		reg = <0x1a>;
+		#sound-dai-cells = <0>;
 		nuvoton,spk-btl;
 	};
 };
@@ -232,12 +233,25 @@
 	powerdown-gpios = <&gpioc 2 GPIO_ACTIVE_HIGH>; /* PC2 */
 };
 
-&i2s_pcm {
-	status = "okay";
-};
+/ {
+	sound {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "MA35D1-NAU8822";
+		simple-audio-card,format = "i2s";
+		simple-audio-card,bitclock-master = <&ma35d1_i2s0_cpu>;
+		simple-audio-card,frame-master = <&ma35d1_i2s0_cpu>;
 
-&sound {
-	status = "okay";
+		ma35d1_i2s0_cpu: simple-audio-card,cpu {
+			sound-dai = <&i2s0>;
+			system-clock-frequency = <12000000>;
+			system-clock-direction-out;
+		};
+
+		simple-audio-card,codec {
+			sound-dai = <&nau8822>;
+			system-clock-frequency = <12000000>;
+		};
+	};
 };
 
 &qspi0 {

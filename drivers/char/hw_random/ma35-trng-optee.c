@@ -89,14 +89,16 @@ struct optee_rng_private {
 
 #define to_optee_rng_private(r)  container_of(r, struct optee_rng_private, optee_rng)
 
-static size_t get_optee_rng_data(struct optee_rng_private *pvt_data,
-				 void *buf, size_t req_size)
+static int get_optee_rng_data(struct optee_rng_private *pvt_data, void *buf,
+			      size_t req_size, size_t *bytes_read)
 {
 	struct tee_ioctl_invoke_arg inv_arg;
 	struct tee_param param[4];
-	u8 *rng_data = NULL;
-	size_t rng_size = 0;
-	int ret = 0;
+	u8 *rng_data;
+	size_t rng_size;
+	int ret;
+
+	*bytes_read = 0;
 
 	memset(&inv_arg, 0, sizeof(inv_arg));
 	memset(&param, 0, sizeof(param));
@@ -113,22 +115,37 @@ static size_t get_optee_rng_data(struct optee_rng_private *pvt_data,
 	param[0].u.memref.shm_offs = 0;
 
 	ret = tee_client_invoke_func(pvt_data->ctx, &inv_arg, param);
-	if ((ret < 0) || (inv_arg.ret != 0)) {
-		dev_err(pvt_data->dev, "PTA_CMD_TRNG_READ invoke err: %x\n",
+	if (ret < 0) {
+		dev_err(pvt_data->dev,
+			"PTA_CMD_TRNG_READ invoke failed: %d\n", ret);
+		return ret;
+	}
+	if (inv_arg.ret) {
+		dev_err(pvt_data->dev,
+			"PTA_CMD_TRNG_READ returned TEE error: %#x\n",
 			inv_arg.ret);
-		return 0;
+		return -EIO;
 	}
 
 	rng_data = tee_shm_get_va(pvt_data->rdata_shm_pool, 0);
 	if (IS_ERR(rng_data)) {
-		dev_err(pvt_data->dev, "tee_shm_get_va failed\n");
-		return 0;
+		ret = PTR_ERR(rng_data);
+		dev_err(pvt_data->dev, "tee_shm_get_va failed: %d\n", ret);
+		return ret;
 	}
 
 	rng_size = param[0].u.memref.size;
-	memcpy(buf, rng_data, rng_size);
+	if (rng_size > req_size) {
+		dev_err(pvt_data->dev,
+			"PTA_CMD_TRNG_READ returned invalid size: %zu > %zu\n",
+			rng_size, req_size);
+		return -EIO;
+	}
 
-	return rng_size;
+	memcpy(buf, rng_data, rng_size);
+	*bytes_read = rng_size;
+
+	return 0;
 }
 
 static int optee_rng_read(struct hwrng *rng, void *buf, size_t max, bool wait)
@@ -136,6 +153,7 @@ static int optee_rng_read(struct hwrng *rng, void *buf, size_t max, bool wait)
 	struct optee_rng_private *pvt_data = to_optee_rng_private(rng);
 	size_t read = 0, rng_size = 0;
 	u8 *data = buf;
+	int ret;
 
 	if (max > RND_DATA_SHM_SZ)
 		max = RND_DATA_SHM_SZ;
@@ -144,7 +162,13 @@ static int optee_rng_read(struct hwrng *rng, void *buf, size_t max, bool wait)
 		return -EINVAL;
 
 	while (read < max) {
-		rng_size = get_optee_rng_data(pvt_data, data, (max - read));
+		ret = get_optee_rng_data(pvt_data, data, max - read,
+					 &rng_size);
+		if (ret) {
+			if (read == 0)
+				return ret;
+			break;
+		}
 
 		if (rng_size == 0) {
 			if (read == 0)
