@@ -765,13 +765,13 @@ static int ma35_nand_attach_chip(struct nand_chip *chip)
 		/* Do not store BBT bits in the OOB section as it is not protected */
 		if (chip->bbt_options & NAND_BBT_USE_FLASH)
 			chip->bbt_options |= NAND_BBT_NO_OOB;
-#if 1
+		/*
+		 * Keep the subpage callbacks available for validation, but do not
+		 * expose subpage access until the implementation is fully verified.
+		 */
 		chip->options |= NAND_NO_SUBPAGE_WRITE | NAND_USES_DMA;
-#else
-		chip->options |= NAND_USES_DMA | NAND_SUBPAGE_READ;
 		chip->ecc.write_subpage = ma35_nand_write_subpage_hwecc;
 		chip->ecc.read_subpage = ma35_nand_read_subpage_hwecc;
-#endif
 		chip->ecc.write_page = ma35_nand_write_page_hwecc;
 		chip->ecc.read_page  = ma35_nand_read_page_hwecc;
 		chip->ecc.read_oob   = ma35_nand_read_oob_hwecc;
