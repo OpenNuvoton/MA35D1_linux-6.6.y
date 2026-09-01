@@ -829,37 +829,29 @@ static void ma35h0serial_set_mctrl(struct uart_port *port, unsigned int mctrl)
 	unsigned int mcr = 0;
 	unsigned int ier = 0;
 
-	if (mctrl & TIOCM_RTS) {
-		/* set RTS high level trigger */
-		mcr = serial_in(up, UART_REG_MCR);
-		mcr |= 0x200;
-		mcr &= ~(0x2);
-	}
+   	if (port->rs485.flags & SER_RS485_ENABLED)
+        	return;
 
-	if (up->mcr & UART_MCR_AFE) {
-		/* set RTS high level trigger */
-		mcr = serial_in(up, UART_REG_MCR);
-		mcr |= 0x200;
-		mcr &= ~(0x2);
+    	mcr = serial_in(up, UART_REG_MCR);
 
-		/* enable CTS/RTS auto-flow control */
-		serial_out(up, UART_REG_IER, (serial_in(up, UART_REG_IER) | (0x3000)));
+    	if (mctrl & TIOCM_RTS)
+        	mcr &= ~0x2;   /* RTS bit = 0 → active */
+    	else
+        	mcr |= 0x2;    /* RTS bit = 1 → inactive */
 
-		/* Set hardware flow control */
-		up->port.flags |= UPF_HARD_FLOW;
-	} else {
-		/* disable CTS/RTS auto-flow control */
-		ier = serial_in(up, UART_REG_IER);
-		ier &= ~(0x3000);
-		serial_out(up, UART_REG_IER, ier);
+    	if (up->mcr & UART_MCR_AFE) {
+        	serial_out(up, UART_REG_IER, serial_in(up, UART_REG_IER) | 0x3000);
+        	up->port.flags |= UPF_HARD_FLOW;
+    	} else {
+        	ier = serial_in(up, UART_REG_IER);
+        	ier &= ~0x3000;
+        	serial_out(up, UART_REG_IER, ier);
+        	up->port.flags &= ~UPF_HARD_FLOW;
+    	}
 
-		/* un-set hardware flow control */
-		up->port.flags &= ~UPF_HARD_FLOW;
-	}
-
-	/* set CTS high level trigger */
-	serial_out(up, UART_REG_MSR, (serial_in(up, UART_REG_MSR) | (0x100)));
-	serial_out(up, UART_REG_MCR, mcr);
+    	/* set CTS high level trigger */
+    	serial_out(up, UART_REG_MSR, serial_in(up, UART_REG_MSR) | 0x100);
+    	serial_out(up, UART_REG_MCR, mcr);
 }
 
 static void ma35h0serial_break_ctl(struct uart_port *port, int break_state)
