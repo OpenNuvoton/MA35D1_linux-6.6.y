@@ -1214,6 +1214,7 @@ static const struct of_device_id ma35d0_serial_of_match[] = {
 
 MODULE_DEVICE_TABLE(of, ma35d0_serial_of_match);
 
+#ifdef CONFIG_SERIAL_MA35D0_CONSOLE
 static void __init ma35d0serial_init_ports(void)
 {
 	struct device_node *np;
@@ -1250,7 +1251,6 @@ static void __init ma35d0serial_init_ports(void)
 	}
 }
 
-#ifdef CONFIG_SERIAL_MA35D0_CONSOLE
 static void ma35d0serial_console_putchar(struct uart_port *port, unsigned char ch)
 {
 	struct uart_ma35d0_port *up = (struct uart_ma35d0_port *)port;
@@ -1478,9 +1478,9 @@ static int ma35d0serial_probe(struct platform_device *pdev)
 	up->port.flags = UPF_BOOT_AUTOCONF;
 	up->port.rs485_config = ma35d0serial_config_rs485;
 	up->port.rs485_supported = ma35d0_rs485_supported;
-    ret = uart_get_rs485_mode(&up->port);
-    if (ret)
-        return ret;
+	ret = uart_get_rs485_mode(&up->port);
+	if (ret)
+		return ret;
 	ret = uart_add_one_port(&ma35d0serial_reg, &up->port);
 	platform_set_drvdata(pdev, up);
 

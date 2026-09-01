@@ -238,15 +238,6 @@ static int ma35d1_i2s_probe(struct snd_soc_dai *dai)
 	return 0;
 }
 
-static int ma35d1_i2s_remove(struct snd_soc_dai *dai)
-{
-	struct ma35d1_i2s_info *info = dev_get_drvdata(dai->dev);
-
-	clk_disable(info->clk);
-
-	return 0;
-}
-
 static void ma35d1_i2s_enable(struct ma35d1_i2s_info *info, int stream)
 {
 

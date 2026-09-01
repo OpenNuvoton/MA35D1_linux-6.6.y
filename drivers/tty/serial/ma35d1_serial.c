@@ -1477,9 +1477,9 @@ static int ma35d1serial_probe(struct platform_device *pdev)
 	up->port.flags = UPF_BOOT_AUTOCONF;
 	up->port.rs485_config = ma35d1serial_config_rs485;
 	up->port.rs485_supported = ma35d1_rs485_supported;
-    ret = uart_get_rs485_mode(&up->port);
-    if (ret)
-        return ret;
+	ret = uart_get_rs485_mode(&up->port);
+	if (ret)
+		return ret;
 	ret = uart_add_one_port(&ma35d1serial_reg, &up->port);
 	platform_set_drvdata(pdev, up);
 
