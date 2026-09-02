@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/iio/adc/nuvoton,ma35d1-eadc.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Nuvoton MA35D1 EADC controller
+
+maintainers:
+  - Nuvoton Technology Corporation <www.nuvoton.com>
+
+description: Nuvoton MA35D1 enhanced ADC controller.
+
+properties:
+  compatible:
+    const: nuvoton,ma35d1-eadc
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  clocks:
+    maxItems: 1
+
+  clock-names:
+    const: eadc_gate
+
+  eadc-frequency:
+    description: EADC clock frequency in Hz.
+    minimum: 1
+
+  eadc-channels:
+    description: Single-ended EADC input channel numbers.
+    minItems: 1
+    maxItems: 8
+    items:
+      minimum: 0
+      maximum: 7
+
+  eadc-diff-channels:
+    description: Differential EADC channels as positive/negative pairs.
+    minItems: 2
+    maxItems: 16
+    items:
+      minimum: 0
+      maximum: 7
+
+  dmas:
+    minItems: 1
+    maxItems: 1
+
+  dma-names:
+    const: rx
+
+  use_pdma:
+    type: integer
+    enum: [0, 1]
+
+  pdma_reqsel_rx:
+    minimum: 0
+    maximum: 255
+
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - clocks
+  - clock-names
+  - eadc-frequency
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    eadc@40430000 {
+      compatible = "nuvoton,ma35d1-eadc";
+      reg = <0x0 0x40430000 0x0 0x10000>;
+      interrupts = <GIC_SPI 65 IRQ_TYPE_LEVEL_HIGH>;
+      clocks = <&clk EADC_GATE>;
+      clock-names = "eadc_gate";
+      eadc-frequency = <10000000>;
+      eadc-channels = <0 1 2 3 4 5 6 7>;
+    };

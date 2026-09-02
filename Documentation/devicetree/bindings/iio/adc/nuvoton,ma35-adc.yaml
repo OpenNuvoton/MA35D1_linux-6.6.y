@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/iio/adc/nuvoton,ma35-adc.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Nuvoton MA35 series ADC controller
+
+maintainers:
+  - Nuvoton Technology Corporation <www.nuvoton.com>
+
+description: Nuvoton MA35 series successive-approximation ADC controller.
+
+properties:
+  compatible:
+    enum:
+      - nuvoton,ma35d0-adc
+      - nuvoton,ma35d1-adc
+      - nuvoton,ma35h0-adc
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  clocks:
+    maxItems: 1
+
+  clock-names:
+    const: adc_gate
+
+  clock-rate:
+    description: ADC clock frequency in Hz.
+    minimum: 1
+
+  nuvoton,adc-vref:
+    description: ADC reference voltage in millivolts.
+    minimum: 1
+
+  nuvoton,min-clock-frequency:
+    description: Threshold for selecting the ADC low-speed clock mode, in Hz.
+    minimum: 1
+
+  nuvoton,max-clock-frequency:
+    description: Maximum supported ADC clock frequency, in Hz.
+    minimum: 1
+
+  '#io-channel-cells':
+    const: 1
+
+  enable-iio: true
+  enable-ts: true
+  ts-type:
+    enum: [4, 5]
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - clocks
+  - clock-names
+  - nuvoton,adc-vref
+  - '#io-channel-cells'
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    adc@40420000 {
+      compatible = "nuvoton,ma35d1-adc";
+      reg = <0x0 0x40420000 0x0 0x500>;
+      interrupts = <GIC_SPI 80 IRQ_TYPE_LEVEL_HIGH>;
+      clocks = <&clk ADC_GATE>;
+      clock-names = "adc_gate";
+      clock-rate = <200000>;
+      nuvoton,adc-vref = <3300>;
+      nuvoton,min-clock-frequency = <3200000>;
+      nuvoton,max-clock-frequency = <16000000>;
+      #io-channel-cells = <1>;
+    };

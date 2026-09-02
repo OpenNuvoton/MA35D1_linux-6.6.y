@@ -1410,17 +1410,6 @@
 		status = "disabled";
 	};
 
-	eadc0: eadc0@40430000 {
-		compatible = "nuvoton,ma35d0-eadc";
-		reg = <0x0 0x40430000 0x0 0x10000>;
-		interrupts = <GIC_SPI 65 IRQ_TYPE_LEVEL_HIGH>;
-		clocks = <&clk EADC_GATE>;
-		clock-names = "eadc_gate";
-		eadc-frequency = <10000000>;
-		eadc-channels = <0 1 2 3 4 5 6 7>;
-		status = "disabled";
-	};
-
 	adc0: adc@40420000 {
 		// To use hybrid ADC driver (IIO+TS) for touch screen, change
 		// the compatible string to "nuvoton,ma35d0-adc",
