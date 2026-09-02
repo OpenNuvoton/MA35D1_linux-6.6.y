@@ -583,7 +583,6 @@
 		clocks = <&clk I2C1_GATE>;
 		clock-frequency = <100000>;
 		resets = <&reset MA35D1_RESET_I2C1>;
-		nuvoton,nfcnt = <0>;
 		status = "disabled";
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -596,7 +595,6 @@
 		clocks = <&clk I2C2_GATE>;
 		clock-frequency = <100000>;
 		resets = <&reset MA35D1_RESET_I2C2>;
-		nuvoton,nfcnt = <0>;
 		status = "disabled";
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -609,7 +607,6 @@
 		clocks = <&clk I2C3_GATE>;
 		clock-frequency = <100000>;
 		resets = <&reset MA35D1_RESET_I2C3>;
-		nuvoton,nfcnt = <0>;
 		status = "disabled";
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -622,7 +619,6 @@
 		clocks = <&clk I2C4_GATE>;
 		clock-frequency = <100000>;
 		resets = <&reset MA35D1_RESET_I2C4>;
-		nuvoton,nfcnt = <0>;
 		#address-cells = <1>;
 		#size-cells = <0>;
 		status = "disabled";
@@ -635,7 +631,6 @@
 		clocks = <&clk I2C5_GATE>;
 		clock-frequency = <100000>;
 		resets = <&reset MA35D1_RESET_I2C5>;
-		nuvoton,nfcnt = <0>;
 		#address-cells = <1>;
 		#size-cells = <0>;
 		status = "disabled";
