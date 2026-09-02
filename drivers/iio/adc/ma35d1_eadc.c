@@ -246,11 +246,6 @@ static irqreturn_t ma35d1_adc_isr(int irq, void *data)
 	return IRQ_NONE;
 }
 
-static void ma35d1_adc_channels_remove(struct iio_dev *indio_dev)
-{
-	kfree(indio_dev->channels);
-}
-
 static void ma35d1_adc_buffer_remove(struct iio_dev *idev)
 {
 	iio_triggered_buffer_cleanup(idev);
@@ -423,18 +418,17 @@ static int ma35d1_adc_dma_request(struct device *dev, struct iio_dev *indio_dev)
 	struct ma35d1_adc_device *info = iio_priv(indio_dev);
 	int ret;
 
-	//info->dma.chan_rx = dma_request_slave_channel(dev, "rx");
 	info->dma.chan_rx = dma_request_chan(dev, "rx");
-	if (!(info->dma.chan_rx)) {
+	if (IS_ERR(info->dma.chan_rx)) {
 		ret = PTR_ERR(info->dma.chan_rx);
-		if (ret != -ENODEV)
-			return dev_err_probe(dev, ret,
-			                     "DMA channel request failed\n");
-
-		dev_err(dev,
-		        "dma_request_chan failed, DMA channel not available.\n");
 		info->dma.chan_rx = NULL;
-		return 0;
+		if (ret == -ENODEV) {
+			dev_warn(dev, "DMA channel unavailable, using IRQ mode\n");
+			return 0;
+		}
+
+		return dev_err_probe(dev, ret,
+				     "DMA channel request failed\n");
 	}
 
 	info->dma.rx_buf_sz = MA35D1_DMA_BUFFER_SIZE;
@@ -464,8 +458,23 @@ err_free:
 	                  info->dma.rx_dma_buf);
 err_release:
 	dma_release_channel(info->dma.chan_rx);
+	info->dma.chan_rx = NULL;
 
 	return ret;
+}
+
+static void ma35d1_adc_dma_release(struct ma35d1_adc_device *info)
+{
+	if (!info->dma.chan_rx)
+		return;
+
+	dmaengine_terminate_sync(info->dma.chan_rx);
+	dma_free_coherent(info->dma.chan_rx->device->dev,
+			  info->dma.rx_buf_sz, info->dma.rx_buf,
+			  info->dma.rx_dma_buf);
+	dma_release_channel(info->dma.chan_rx);
+	info->dma.chan_rx = NULL;
+	info->dma.rx_buf = NULL;
 }
 
 static int ma35d1_adc_read_raw(struct iio_dev *indio_dev,
@@ -714,7 +723,9 @@ static int ma35d1_adc_probe(struct platform_device *pdev)
 		goto err_ret;
 	}
 
-	clk_set_rate(info->eclk, freq);
+	ret = clk_set_rate(info->eclk, freq);
+	if (ret)
+		goto err_ret;
 
 	if (of_property_read_u32(pdev->dev.of_node, "use_pdma",
 	                         &info->use_pdma)) {
@@ -726,7 +737,7 @@ static int ma35d1_adc_probe(struct platform_device *pdev)
 		if (of_property_read_u32_array(pdev->dev.of_node, "reg", val32,
 		                               4)) {
 			dev_err(&pdev->dev, "can not get bank!\n");
-			return -EINVAL;
+			goto err_ret;
 		}
 
 		info->phyaddr = val32[1];
@@ -735,7 +746,7 @@ static int ma35d1_adc_probe(struct platform_device *pdev)
 		                           &info->pdma_reqsel_rx);
 		if (ret) {
 			dev_err(&pdev->dev, "cannot get pdma_reqsel_rx\n");
-			return ret;
+			goto err_ret;
 		}
 	}
 
@@ -759,12 +770,12 @@ static int ma35d1_adc_probe(struct platform_device *pdev)
 
 	ret = ma35d1_adc_chan_of_init(indio_dev);
 	if (ret)
-		return ret;
+		goto err_free_channels;
 
 	if (info->use_pdma) {
 		ret = ma35d1_adc_dma_request(&pdev->dev, indio_dev);
 		if (ret)
-			goto err_ret;
+			goto err_free_channels;
 	}
 	writel(readl(info->regs + CTL) | ADCEN, info->regs + CTL);
 	writel(1, info->regs + STATUS2);
@@ -798,10 +809,14 @@ static int ma35d1_adc_probe(struct platform_device *pdev)
 err_cleanup_buffer:
 	iio_triggered_buffer_cleanup(indio_dev);
 err_free_channels:
+	ma35d1_adc_dma_release(info);
+	free_irq(info->irq, indio_dev);
 	/* disable ADCEN */
 	writel(readl(info->regs + CTL) & ~ADCEN, info->regs + CTL);
-	ma35d1_adc_channels_remove(indio_dev);
 err_ret:
+	clk_disable_unprepare(info->eclk);
+	if (info->regs)
+		iounmap(info->regs);
 	return ret;
 }
 
@@ -811,12 +826,13 @@ static int ma35d1_adc_remove(struct platform_device *pdev)
 	struct ma35d1_adc_device *info = iio_priv(indio_dev);
 
 	iio_device_unregister(indio_dev);
-	ma35d1_adc_channels_remove(indio_dev);
-	iio_device_free(indio_dev);
 	writel(readl(info->regs + CTL) & ~ADCEN, info->regs + CTL);
-	clk_disable_unprepare(info->eclk);
 	ma35d1_adc_buffer_remove(indio_dev);
-	free_irq(info->irq, info);
+	ma35d1_adc_dma_release(info);
+	free_irq(info->irq, indio_dev);
+	clk_disable_unprepare(info->eclk);
+	iounmap(info->regs);
+	iio_device_free(indio_dev);
 
 	return 0;
 }
@@ -838,7 +854,11 @@ static int ma35d1_adc_resume(struct device *dev)
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
 	struct ma35d1_adc_device *info = iio_priv(indio_dev);
 
-	clk_prepare_enable(info->eclk);
+	int ret;
+
+	ret = clk_prepare_enable(info->eclk);
+	if (ret)
+		return ret;
 	writel(readl(info->regs + CTL) | ADCEN, info->regs + CTL);
 
 	return 0;
