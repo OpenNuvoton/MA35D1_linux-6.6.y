@@ -118,7 +118,6 @@ static int ma35_mode_init(struct ma35_drm *priv)
 		return -EINVAL;
 	}
 
-	drm_dev->max_vblank_count = MA35_DEBUG_COUNTER_MASK;
 	ret = drm_vblank_init(drm_dev, 1);
 	if (ret) {
 		drm_err(drm_dev, "Failed to initialize vblank\n");
