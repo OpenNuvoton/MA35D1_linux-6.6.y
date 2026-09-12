@@ -15,6 +15,7 @@
 
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/dma/nuvoton,ma35-pdma.h>
 #include <dt-bindings/clock/nuvoton,ma35d1-clk.h>
 #include <dt-bindings/reset/nuvoton,ma35d1-reset.h>
 #include <dt-bindings/pinctrl/ma35d1-pinfunc.h>
@@ -644,8 +645,8 @@
 		resets = <&reset MA35D1_RESET_I2S0>;
 		dmas = <&pdma0 0>, <&pdma0 1>;
 		dma-names = "tx", "rx";
-		nuvoton,pdma-reqsel-tx = <86>;
-		nuvoton,pdma-reqsel-rx = <87>;
+		nuvoton,pdma-reqsel-tx = <MA35_PDMA_REQ_I2S0_TX>;
+		nuvoton,pdma-reqsel-rx = <MA35_PDMA_REQ_I2S0_RX>;
 		#sound-dai-cells = <0>;
 		status = "disabled";
 	};
@@ -658,8 +659,8 @@
 		resets = <&reset MA35D1_RESET_I2S1>;
 		dmas = <&pdma0 2>, <&pdma0 3>;
 		dma-names = "tx", "rx";
-		nuvoton,pdma-reqsel-tx = <88>;
-		nuvoton,pdma-reqsel-rx = <89>;
+		nuvoton,pdma-reqsel-tx = <MA35_PDMA_REQ_I2S1_TX>;
+		nuvoton,pdma-reqsel-rx = <MA35_PDMA_REQ_I2S1_RX>;
 		#sound-dai-cells = <0>;
 		status = "disabled";
 	};
@@ -1474,8 +1475,8 @@
 		clocks = <&clk QSPI0_GATE>;
 		dmas = <&pdma1 0>,<&pdma1 1>;
 		dma-names = "tx","rx";
-		pdma_reqsel_tx = <54>;
-		pdma_reqsel_rx = <55>;
+		pdma_reqsel_tx = <MA35_PDMA_REQ_QSPI0_TX>;
+		pdma_reqsel_rx = <MA35_PDMA_REQ_QSPI0_RX>;
 		use_pdma = <1>;
 		num_cs = <2>;
 		lsb = <0>;
@@ -1533,8 +1534,8 @@
 		clocks = <&clk QSPI1_GATE>;
 		dmas = <&pdma1 2>,<&pdma1 3>;
 		dma-names = "tx","rx";
-		pdma_reqsel_tx = <56>;
-		pdma_reqsel_rx = <57>;
+		pdma_reqsel_tx = <MA35_PDMA_REQ_QSPI1_TX>;
+		pdma_reqsel_rx = <MA35_PDMA_REQ_QSPI1_RX>;
 		use_pdma = <0>;
 		num_cs = <2>;
 		lsb = <0>;
@@ -1577,8 +1578,8 @@
 		clocks = <&clk SPI0_GATE>;
 		dmas = <&pdma1 4>,<&pdma1 5>;
 		dma-names = "tx","rx";
-		pdma_reqsel_tx = <60>;
-		pdma_reqsel_rx = <61>;
+		pdma_reqsel_tx = <MA35_PDMA_REQ_SPI0_TX>;
+		pdma_reqsel_rx = <MA35_PDMA_REQ_SPI0_RX>;
 		use_pdma = <0>;
 		num_cs = <2>;
 		lsb = <0>;
@@ -1598,8 +1599,8 @@
 		clocks = <&clk SPI1_GATE>;
 		dmas = <&pdma1 6>,<&pdma1 7>;
 		dma-names = "tx","rx";
-		pdma_reqsel_tx = <62>;
-		pdma_reqsel_rx = <63>;
+		pdma_reqsel_tx = <MA35_PDMA_REQ_SPI1_TX>;
+		pdma_reqsel_rx = <MA35_PDMA_REQ_SPI1_RX>;
 		use_pdma = <0>;
 		num_cs = <2>;
 		lsb = <0>;
@@ -1619,8 +1620,8 @@
 		clocks = <&clk SPI2_GATE>;
 		dmas = <&pdma1 8>,<&pdma1 9>;
 		dma-names = "tx","rx";
-		pdma_reqsel_tx = <64>;
-		pdma_reqsel_rx = <65>;
+		pdma_reqsel_tx = <MA35_PDMA_REQ_SPI2_TX>;
+		pdma_reqsel_rx = <MA35_PDMA_REQ_SPI2_RX>;
 		use_pdma = <0>;
 		num_cs = <2>;
 		lsb = <0>;
@@ -1640,8 +1641,8 @@
 		clocks = <&clk SPI3_GATE>;
 		dmas = <&pdma2 0>,<&pdma2 1>;
 		dma-names = "tx","rx";
-		pdma_reqsel_tx = <66>;
-		pdma_reqsel_rx = <67>;
+		pdma_reqsel_tx = <MA35_PDMA_REQ_SPI3_TX>;
+		pdma_reqsel_rx = <MA35_PDMA_REQ_SPI3_RX>;
 		use_pdma = <0>;
 		num_cs = <2>;
 		lsb = <0>;

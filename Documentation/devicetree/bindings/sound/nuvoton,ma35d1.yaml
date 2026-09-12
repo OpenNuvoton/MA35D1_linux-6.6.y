@@ -77,27 +77,27 @@ properties:
 
   nuvoton,pdma-reqsel-tx:
     $ref: /schemas/types.yaml#/definitions/uint32
-    maximum: 255
+    enum: [86, 88]
     description: |
       MA35 PDMA hardware request selector for I2S transmission.
       I2S0 uses request 86 and I2S1 uses request 88.
 
   nuvoton,pdma-reqsel-rx:
     $ref: /schemas/types.yaml#/definitions/uint32
-    maximum: 255
+    enum: [87, 89]
     description: |
       MA35 PDMA hardware request selector for I2S reception.
       I2S0 uses request 87 and I2S1 uses request 89.
 
   pdma_reqsel_tx:
     $ref: /schemas/types.yaml#/definitions/uint32
-    maximum: 255
+    enum: [86, 88]
     deprecated: true
     description: Legacy alias for nuvoton,pdma-reqsel-tx.
 
   pdma_reqsel_rx:
     $ref: /schemas/types.yaml#/definitions/uint32
-    maximum: 255
+    enum: [87, 89]
     deprecated: true
     description: Legacy alias for nuvoton,pdma-reqsel-rx.
 
@@ -137,20 +137,21 @@ unevaluatedProperties: false
 examples:
   - |
     #include <dt-bindings/clock/nuvoton,ma35d1-clk.h>
+    #include <dt-bindings/dma/nuvoton,ma35-pdma.h>
     #include <dt-bindings/interrupt-controller/arm-gic.h>
     #include <dt-bindings/reset/nuvoton,ma35d1-reset.h>
 
     i2s@40480000 {
         compatible = "nuvoton,ma35d1-i2s";
-        reg = <0x0 0x40480000 0x0 0x10000>;
+        reg = <0x40480000 0x10000>;
         interrupts = <GIC_SPI 70 IRQ_TYPE_LEVEL_HIGH>;
         clocks = <&clk I2S0_GATE>;
         resets = <&reset MA35D1_RESET_I2S0>;
 
         dmas = <&pdma0 0>, <&pdma0 1>;
         dma-names = "tx", "rx";
-        nuvoton,pdma-reqsel-tx = <86>;
-        nuvoton,pdma-reqsel-rx = <87>;
+        nuvoton,pdma-reqsel-tx = <MA35_PDMA_REQ_I2S0_TX>;
+        nuvoton,pdma-reqsel-rx = <MA35_PDMA_REQ_I2S0_RX>;
 
         #sound-dai-cells = <0>;
     };
