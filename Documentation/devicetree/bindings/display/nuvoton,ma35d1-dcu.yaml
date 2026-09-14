@@ -126,7 +126,6 @@ properties:
               layer-type is "cursor". Defaults to 0.
 
         required:
-          - reg
           - layer-id
           - layer-type
 

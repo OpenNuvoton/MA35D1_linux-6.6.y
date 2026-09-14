@@ -7,7 +7,7 @@ $schema: http://devicetree.org/meta-schemas/core.yaml#
 title: Nuvoton MA35D1 EADC controller
 
 maintainers:
-  - Nuvoton Technology Corporation <www.nuvoton.com>
+  - Chi-Wen Weng <cwweng@nuvoton.com>
 
 description: Nuvoton MA35D1 enhanced ADC controller.
 
@@ -28,10 +28,12 @@ properties:
     const: eadc_gate
 
   eadc-frequency:
+    $ref: /schemas/types.yaml#/definitions/uint32
     description: EADC clock frequency in Hz.
     minimum: 1
 
   eadc-channels:
+    $ref: /schemas/types.yaml#/definitions/uint32-array
     description: Single-ended EADC input channel numbers.
     minItems: 1
     maxItems: 8
@@ -40,6 +42,7 @@ properties:
       maximum: 7
 
   eadc-diff-channels:
+    $ref: /schemas/types.yaml#/definitions/uint32-array
     description: Differential EADC channels as positive/negative pairs.
     minItems: 2
     maxItems: 16
@@ -48,17 +51,17 @@ properties:
       maximum: 7
 
   dmas:
-    minItems: 1
     maxItems: 1
 
   dma-names:
     const: rx
 
   use_pdma:
-    type: integer
+    $ref: /schemas/types.yaml#/definitions/uint32
     enum: [0, 1]
 
   pdma_reqsel_rx:
+    $ref: /schemas/types.yaml#/definitions/uint32
     minimum: 0
     maximum: 255
 

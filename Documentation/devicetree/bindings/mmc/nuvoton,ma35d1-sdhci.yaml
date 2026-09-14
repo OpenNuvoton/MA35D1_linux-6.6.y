@@ -1,0 +1,109 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/mmc/nuvoton,ma35d1-sdhci.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Nuvoton MA35D1 SD/SDIO/MMC Controller
+
+maintainers:
+  - Shan-Chun Hung <shanchun1218@gmail.com>
+
+allOf:
+  - $ref: sdhci-common.yaml#
+
+properties:
+  compatible:
+    enum:
+      - nuvoton,ma35d0-sdhci
+      - nuvoton,ma35d1-sdhci
+      - nuvoton,ma35h0-sdhci
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  clocks:
+    minItems: 1
+    maxItems: 2
+
+  clock-names:
+    minItems: 1
+    items:
+      - const: core
+      - const: bus
+
+  pinctrl-names:
+    minItems: 1
+    maxItems: 2
+    items:
+      enum: [default, state_uhs, sdhci_3V3, sdhci_1V8]
+
+  power-gpios:
+    maxItems: 1
+
+  pinctrl-0:
+    description:
+      Should contain default/high speed pin ctrl.
+    maxItems: 1
+
+  pinctrl-1:
+    description:
+      Should contain uhs mode pin ctrl.
+    maxItems: 1
+
+  resets:
+    maxItems: 1
+
+  nuvoton,ma35d0-sys:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Phandle to the MA35D0 system controller.
+
+  nuvoton,ma35d1-sys:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Phandle to the MA35D1 system controller.
+
+  nuvoton,ma35h0-sys:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Phandle to the MA35H0 system controller.
+
+  sdhci-caps-mask:
+    $ref: /schemas/types.yaml#/definitions/uint64
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - clocks
+  - clock-names
+  - resets
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/arm-gic.h>
+    #include <dt-bindings/clock/nuvoton,ma35d1-clk.h>
+    #include <dt-bindings/reset/nuvoton,ma35d1-reset.h>
+
+    soc {
+        #address-cells = <2>;
+        #size-cells = <2>;
+        mmc@40190000 {
+            compatible = "nuvoton,ma35d1-sdhci";
+            reg = <0x0 0x40190000 0x0 0x2000>;
+            interrupts = <GIC_SPI 31 IRQ_TYPE_LEVEL_HIGH>;
+            clocks = <&clk 1>;
+            clock-names = "core";
+            pinctrl-names = "default", "state_uhs";
+            pinctrl-0 = <&pinctrl_sdhci1>;
+            pinctrl-1 = <&pinctrl_sdhci1_uhs>;
+            resets = <&sys 1>;
+            nuvoton,ma35d1-sys = <&sys>;
+            vqmmc-supply = <&sdhci1_vqmmc_regulator>;
+            bus-width = <8>;
+            max-frequency = <200000000>;
+        };
+    };

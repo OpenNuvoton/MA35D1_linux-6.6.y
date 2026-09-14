@@ -7,7 +7,7 @@ $schema: http://devicetree.org/meta-schemas/core.yaml#
 title: Nuvoton MA35 series ADC controller
 
 maintainers:
-  - Nuvoton Technology Corporation <www.nuvoton.com>
+  - Chi-Wen Weng <cwweng@nuvoton.com>
 
 description: Nuvoton MA35 series successive-approximation ADC controller.
 
@@ -31,27 +31,38 @@ properties:
     const: adc_gate
 
   clock-rate:
+    $ref: /schemas/types.yaml#/definitions/uint32
     description: ADC clock frequency in Hz.
     minimum: 1
 
   nuvoton,adc-vref:
+    $ref: /schemas/types.yaml#/definitions/uint32
     description: ADC reference voltage in millivolts.
     minimum: 1
 
   nuvoton,min-clock-frequency:
+    $ref: /schemas/types.yaml#/definitions/uint32
     description: Threshold for selecting the ADC low-speed clock mode, in Hz.
     minimum: 1
 
   nuvoton,max-clock-frequency:
+    $ref: /schemas/types.yaml#/definitions/uint32
     description: Maximum supported ADC clock frequency, in Hz.
     minimum: 1
 
   '#io-channel-cells':
     const: 1
 
-  enable-iio: true
-  enable-ts: true
+  enable-iio:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    enum: [0, 1]
+
+  enable-ts:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    enum: [0, 1]
+
   ts-type:
+    $ref: /schemas/types.yaml#/definitions/uint32
     enum: [4, 5]
 
 required:
