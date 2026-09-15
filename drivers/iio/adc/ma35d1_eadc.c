@@ -641,6 +641,21 @@ static void __ma35d1_adc_buffer_predisable(struct iio_dev *indio_dev)
 		dmaengine_terminate_sync(info->dma.chan_rx);
 	writel(readl(info->regs + CTL) & ~ADCIEN0, info->regs + CTL);
 	writel((readl(info->regs + SCTL0) & ~TRGSELMSK), info->regs + SCTL0);
+
+	/*
+	 * Disabling ADCIEN0 above only stops the EADC from generating
+	 * *future* interrupts; it does not retract one that is already
+	 * latched/in-flight on another CPU. Right after this callback
+	 * returns, the IIO core calls free_irq() on the trigger's subirq,
+	 * destroying the kernel thread that runs ma35d1_trigger_handler().
+	 * If ma35d1_adc_isr() is still running at that moment, it can call
+	 * iio_trigger_poll() concurrently with that free_irq(), permanently
+	 * losing the EOC notification since the thread that would handle it
+	 * is already gone. synchronize_irq() blocks until any in-flight ISR
+	 * instance has returned and guarantees none can start afterwards,
+	 * closing this race before the IIO core proceeds to free_irq().
+	 */
+	synchronize_irq(info->irq);
 }
 
 static int ma35d1_adc_buffer_predisable(struct iio_dev *indio_dev)
