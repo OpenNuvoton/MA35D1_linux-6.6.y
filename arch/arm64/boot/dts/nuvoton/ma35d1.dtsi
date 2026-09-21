@@ -1676,15 +1676,54 @@
 		status = "disabled";
 	};
 
-	eadc0: eadc0@40430000 {
+	eadc0: adc@40430000 {
 		compatible = "nuvoton,ma35d1-eadc";
 		reg = <0x0 0x40430000 0x0 0x10000>;
 		interrupts = <GIC_SPI 65 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk EADC_GATE>;
-		clock-names = "eadc_gate";
-		eadc-frequency = <10000000>;
-		eadc-channels = <0 1 2 3 4 5 6 7>;
+		assigned-clocks = <&clk EADC_DIV>;
+		assigned-clock-rates = <10000000>;
+
+		dmas = <&pdma0 4>;
+		dma-names = "rx";
+		nuvoton,pdma-reqsel-rx = <MA35_PDMA_REQ_ADC_RX>;
 		status = "disabled";
+
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		channel@0 {
+			reg = <0>;
+		};
+
+		channel@1 {
+			reg = <1>;
+		};
+
+		channel@2 {
+			reg = <2>;
+		};
+
+		channel@3 {
+			reg = <3>;
+		};
+
+		channel@4 {
+			reg = <4>;
+		};
+
+		channel@5 {
+			reg = <5>;
+		};
+
+		channel@6 {
+			reg = <6>;
+		};
+
+		channel@7 {
+			reg = <7>;
+		};
+
 	};
 
 	adc0: adc@40420000 {

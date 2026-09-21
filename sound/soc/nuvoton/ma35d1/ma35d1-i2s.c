@@ -86,6 +86,7 @@ struct ma35d1_i2s {
 
 	unsigned int mclk_rate;
 	unsigned int default_mclk_rate;
+	unsigned int bclk_ratio;
 	unsigned int active_streams;
 	unsigned int configured_streams;
 	snd_pcm_format_t configured_format;
@@ -125,27 +126,102 @@ static int ma35d1_i2s_read_reqsel(struct device *dev, const char *property,
 	return ret;
 }
 
+static int ma35d1_i2s_calc_mclk_div(struct ma35d1_i2s *i2s,
+				       unsigned int mclk_rate,
+				       u32 *mclk_div)
+{
+	unsigned long parent_rate;
+	u64 div;
+
+	parent_rate = clk_get_rate(i2s->clk);
+	if (!parent_rate || !mclk_rate)
+		return -EINVAL;
+
+	if (parent_rate == mclk_rate) {
+		*mclk_div = 0;
+		return 0;
+	}
+
+	div = DIV_ROUND_CLOSEST_ULL(parent_rate, 2ULL * mclk_rate);
+	if (!div || div > FIELD_MAX(MA35D1_I2S_CLKDIV_MCLK_MASK))
+		return -EINVAL;
+
+	*mclk_div = div;
+
+	return 0;
+}
+
 static int ma35d1_i2s_set_sysclk(struct snd_soc_dai *dai, int clk_id,
 				 unsigned int freq, int dir)
 {
 	struct ma35d1_i2s *i2s = dev_get_drvdata(dai->dev);
-	unsigned int mclk_rate;
 	unsigned long flags;
+	u32 mclk_div;
+	int ret;
 
 	if (clk_id != 0 || dir != SND_SOC_CLOCK_OUT)
 		return -EINVAL;
 
-	mclk_rate = freq ? freq : i2s->default_mclk_rate;
-	if (!mclk_rate)
-		return -EINVAL;
+	/*
+	 * A zero frequency releases the SYSCLK request.  Do not disable
+	 * MCLK while a stream is active.
+	 */
+	if (!freq) {
+		spin_lock_irqsave(&i2s->lock, flags);
+		if (i2s->active_streams) {
+			spin_unlock_irqrestore(&i2s->lock, flags);
+			return -EBUSY;
+		}
+
+		ma35d1_i2s_update_bits(i2s, MA35D1_I2S_CTL0,
+					 MA35D1_I2S_CTL0_MCLKEN, 0);
+		i2s->mclk_rate = 0;
+		spin_unlock_irqrestore(&i2s->lock, flags);
+
+		return 0;
+	}
+
+	ret = ma35d1_i2s_calc_mclk_div(i2s, freq, &mclk_div);
+	if (ret)
+		return ret;
 
 	spin_lock_irqsave(&i2s->lock, flags);
-	if (i2s->active_streams && i2s->mclk_rate != mclk_rate) {
+	if (i2s->active_streams && i2s->mclk_rate != freq) {
 		spin_unlock_irqrestore(&i2s->lock, flags);
 		return -EBUSY;
 	}
 
-	i2s->mclk_rate = mclk_rate;
+	ma35d1_i2s_update_bits(i2s, MA35D1_I2S_CLKDIV,
+				 MA35D1_I2S_CLKDIV_MCLK_MASK,
+				 FIELD_PREP(MA35D1_I2S_CLKDIV_MCLK_MASK,
+					    mclk_div));
+	i2s->mclk_rate = freq;
+	ma35d1_i2s_update_bits(i2s, MA35D1_I2S_CTL0,
+				 MA35D1_I2S_CTL0_MCLKEN,
+				 MA35D1_I2S_CTL0_MCLKEN);
+	spin_unlock_irqrestore(&i2s->lock, flags);
+
+	return 0;
+}
+
+static int ma35d1_i2s_set_bclk_ratio(struct snd_soc_dai *dai,
+				     unsigned int ratio)
+{
+	struct ma35d1_i2s *i2s = dev_get_drvdata(dai->dev);
+	unsigned long flags;
+
+	spin_lock_irqsave(&i2s->lock, flags);
+
+	/*
+	 * hw_params() has already programmed BCLKDIV for configured streams.
+	 * Do not change the BCLK ratio until those streams are released.
+	 */
+	if (i2s->configured_streams && i2s->bclk_ratio != ratio) {
+		spin_unlock_irqrestore(&i2s->lock, flags);
+		return -EBUSY;
+	}
+
+	i2s->bclk_ratio = ratio;
 	spin_unlock_irqrestore(&i2s->lock, flags);
 
 	return 0;
@@ -201,26 +277,30 @@ static int ma35d1_i2s_calc_clkdiv(struct ma35d1_i2s *i2s,
 				  unsigned int channel_width,
 				  u32 *clkdiv)
 {
+	unsigned int bclk_ratio;
 	unsigned long parent_rate;
 	unsigned long bclk_div = 0;
-	unsigned long mclk_div;
+	u32 mclk_div;
 	u64 bclk;
+	int ret;
+
+	ret = ma35d1_i2s_calc_mclk_div(i2s, i2s->mclk_rate, &mclk_div);
+	if (ret)
+		return ret;
 
 	parent_rate = clk_get_rate(i2s->clk);
-	if (!parent_rate || !i2s->mclk_rate)
+	if (!parent_rate)
 		return -EINVAL;
 
-	if (parent_rate == i2s->mclk_rate) {
-		mclk_div = 0;
-	} else {
-		mclk_div = DIV_ROUND_CLOSEST_ULL(parent_rate,
-						 2ULL * i2s->mclk_rate);
-		if (!mclk_div)
-			return -EINVAL;
-	}
-
 	if (i2s->is_master) {
-		bclk = (u64)rate * MA35D1_I2S_FRAME_SLOTS * channel_width;
+		bclk_ratio = i2s->bclk_ratio;
+		if (!bclk_ratio)
+			bclk_ratio = MA35D1_I2S_FRAME_SLOTS * channel_width;
+
+		if (bclk_ratio < MA35D1_I2S_FRAME_SLOTS * channel_width)
+			return -EINVAL;
+
+		bclk = (u64)rate * bclk_ratio;
 		bclk_div = DIV_ROUND_CLOSEST_ULL(parent_rate, 2ULL * bclk);
 		if (!bclk_div)
 			return -EINVAL;
@@ -374,18 +454,15 @@ static int ma35d1_i2s_trigger(struct snd_pcm_substream *substream, int cmd,
 
 		i2s->active_streams |= stream_bit;
 		ma35d1_i2s_update_bits(i2s, MA35D1_I2S_CTL0,
-					 enable | MA35D1_I2S_CTL0_MCLKEN |
-					 MA35D1_I2S_CTL0_I2SEN,
-					 enable | MA35D1_I2S_CTL0_MCLKEN |
-					 MA35D1_I2S_CTL0_I2SEN);
+					 enable | MA35D1_I2S_CTL0_I2SEN,
+					 enable | MA35D1_I2S_CTL0_I2SEN);
 		break;
 
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		i2s->active_streams &= ~stream_bit;
-		value = i2s->active_streams ? 0 :
-			MA35D1_I2S_CTL0_I2SEN | MA35D1_I2S_CTL0_MCLKEN;
+		value = i2s->active_streams ? 0 : MA35D1_I2S_CTL0_I2SEN;
 		ma35d1_i2s_update_bits(i2s, MA35D1_I2S_CTL0,
 					 enable | value, 0);
 		break;
@@ -412,6 +489,7 @@ static int ma35d1_i2s_dai_probe(struct snd_soc_dai *dai)
 static const struct snd_soc_dai_ops ma35d1_i2s_dai_ops = {
 	.probe = ma35d1_i2s_dai_probe,
 	.set_sysclk = ma35d1_i2s_set_sysclk,
+	.set_bclk_ratio = ma35d1_i2s_set_bclk_ratio,
 	.set_fmt = ma35d1_i2s_set_fmt,
 	.hw_params = ma35d1_i2s_hw_params,
 	.hw_free = ma35d1_i2s_hw_free,
