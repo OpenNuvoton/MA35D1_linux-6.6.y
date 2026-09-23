@@ -829,37 +829,29 @@ static void ma35d0serial_set_mctrl(struct uart_port *port, unsigned int mctrl)
 	unsigned int mcr = 0;
 	unsigned int ier = 0;
 
-	if (mctrl & TIOCM_RTS) {
-		/* set RTS high level trigger */
-		mcr = serial_in(up, UART_REG_MCR);
-		mcr |= 0x200;
-		mcr &= ~(0x2);
-	}
+   	if (port->rs485.flags & SER_RS485_ENABLED)
+        	return;
 
-	if (up->mcr & UART_MCR_AFE) {
-		/* set RTS high level trigger */
-		mcr = serial_in(up, UART_REG_MCR);
-		mcr |= 0x200;
-		mcr &= ~(0x2);
+    	mcr = serial_in(up, UART_REG_MCR);
 
-		/* enable CTS/RTS auto-flow control */
-		serial_out(up, UART_REG_IER, (serial_in(up, UART_REG_IER) | (0x3000)));
+    	if (mctrl & TIOCM_RTS)
+        	mcr &= ~0x2;   /* RTS bit = 0 → active */
+    	else
+        	mcr |= 0x2;    /* RTS bit = 1 → inactive */
 
-		/* Set hardware flow control */
-		up->port.flags |= UPF_HARD_FLOW;
-	} else {
-		/* disable CTS/RTS auto-flow control */
-		ier = serial_in(up, UART_REG_IER);
-		ier &= ~(0x3000);
-		serial_out(up, UART_REG_IER, ier);
+    	if (up->mcr & UART_MCR_AFE) {
+        	serial_out(up, UART_REG_IER, serial_in(up, UART_REG_IER) | 0x3000);
+        	up->port.flags |= UPF_HARD_FLOW;
+    	} else {
+        	ier = serial_in(up, UART_REG_IER);
+        	ier &= ~0x3000;
+        	serial_out(up, UART_REG_IER, ier);
+        	up->port.flags &= ~UPF_HARD_FLOW;
+    	}
 
-		/* un-set hardware flow control */
-		up->port.flags &= ~UPF_HARD_FLOW;
-	}
-
-	/* set CTS high level trigger */
-	serial_out(up, UART_REG_MSR, (serial_in(up, UART_REG_MSR) | (0x100)));
-	serial_out(up, UART_REG_MCR, mcr);
+    	/* set CTS high level trigger */
+    	serial_out(up, UART_REG_MSR, serial_in(up, UART_REG_MSR) | 0x100);
+    	serial_out(up, UART_REG_MCR, mcr);
 }
 
 static void ma35d0serial_break_ctl(struct uart_port *port, int break_state)
@@ -1222,6 +1214,7 @@ static const struct of_device_id ma35d0_serial_of_match[] = {
 
 MODULE_DEVICE_TABLE(of, ma35d0_serial_of_match);
 
+#ifdef CONFIG_SERIAL_MA35D0_CONSOLE
 static void __init ma35d0serial_init_ports(void)
 {
 	struct device_node *np;
@@ -1258,7 +1251,6 @@ static void __init ma35d0serial_init_ports(void)
 	}
 }
 
-#ifdef CONFIG_SERIAL_MA35D0_CONSOLE
 static void ma35d0serial_console_putchar(struct uart_port *port, unsigned char ch)
 {
 	struct uart_ma35d0_port *up = (struct uart_ma35d0_port *)port;
@@ -1486,9 +1478,9 @@ static int ma35d0serial_probe(struct platform_device *pdev)
 	up->port.flags = UPF_BOOT_AUTOCONF;
 	up->port.rs485_config = ma35d0serial_config_rs485;
 	up->port.rs485_supported = ma35d0_rs485_supported;
-    ret = uart_get_rs485_mode(&up->port);
-    if (ret)
-        return ret;
+	ret = uart_get_rs485_mode(&up->port);
+	if (ret)
+		return ret;
 	ret = uart_add_one_port(&ma35d0serial_reg, &up->port);
 	platform_set_drvdata(pdev, up);
 
