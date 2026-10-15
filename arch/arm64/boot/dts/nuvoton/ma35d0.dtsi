@@ -157,6 +157,8 @@
 		interrupts = <GIC_SPI 59 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk UART0_GATE>;
 		port-number = <0>;
+		nuvoton,pdma-reqsel-tx = <MA35_PDMA_REQ_UART0_TX>;
+		nuvoton,pdma-reqsel-rx = <MA35_PDMA_REQ_UART0_RX>;
 		pdma-enable = <0>;
 		status = "okay";
 	};
@@ -167,6 +169,8 @@
 		interrupts = <GIC_SPI 63 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk UART4_GATE>;
 		port-number = <4>;
+		nuvoton,pdma-reqsel-tx = <MA35_PDMA_REQ_UART4_TX>;
+		nuvoton,pdma-reqsel-rx = <MA35_PDMA_REQ_UART4_RX>;
 		pdma-enable = <0>;
 		status = "disabled";
 	};
@@ -177,6 +181,8 @@
 		interrupts = <GIC_SPI 64 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk UART5_GATE>;
 		port-number = <5>;
+		nuvoton,pdma-reqsel-tx = <MA35_PDMA_REQ_UART5_TX>;
+		nuvoton,pdma-reqsel-rx = <MA35_PDMA_REQ_UART5_RX>;
 		pdma-enable = <0>;
 		status = "disabled";
 	};
@@ -187,6 +193,8 @@
 		interrupts = <GIC_SPI 91 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk UART6_GATE>;
 		port-number = <6>;
+		nuvoton,pdma-reqsel-tx = <MA35_PDMA_REQ_UART6_TX>;
+		nuvoton,pdma-reqsel-rx = <MA35_PDMA_REQ_UART6_RX>;
 		pdma-enable = <0>;
 		status = "disabled";
 	};
@@ -197,6 +205,8 @@
 		interrupts = <GIC_SPI 93 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk UART8_GATE>;
 		port-number = <8>;
+		nuvoton,pdma-reqsel-tx = <MA35_PDMA_REQ_UART8_TX>;
+		nuvoton,pdma-reqsel-rx = <MA35_PDMA_REQ_UART8_RX>;
 		pdma-enable = <0>;
 		status = "disabled";
 	};
@@ -207,6 +217,8 @@
 		interrupts = <GIC_SPI 94 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk UART9_GATE>;
 		port-number = <9>;
+		nuvoton,pdma-reqsel-tx = <MA35_PDMA_REQ_UART9_TX>;
+		nuvoton,pdma-reqsel-rx = <MA35_PDMA_REQ_UART9_RX>;
 		pdma-enable = <0>;
 		status = "disabled";
 	};
@@ -217,14 +229,16 @@
 		interrupts = <GIC_SPI 95 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk UART10_GATE>;
 		port-number = <10>;
+		nuvoton,pdma-reqsel-tx = <MA35_PDMA_REQ_UART10_TX>;
+		nuvoton,pdma-reqsel-rx = <MA35_PDMA_REQ_UART10_RX>;
 		pdma-enable = <0>;
 
 		/* wakeup-enable = <cts-wakeup fifo-threshold-wakeup fifo-timeout-wakeup> */
 		/* wakeup-enable = <1 1 0>; */
-		
+
 		/* set: 1, 4, 8, 14 or 30 bytes */
 		/* only for fifo threshold wakeup */
-		/* fifo-threshold = <14>; */ 
+		/* fifo-threshold = <14>; */
 
 		status = "disabled";
 	};
@@ -235,6 +249,8 @@
 		interrupts = <GIC_SPI 118 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk UART12_GATE>;
 		port-number = <12>;
+		nuvoton,pdma-reqsel-tx = <MA35_PDMA_REQ_UART12_TX>;
+		nuvoton,pdma-reqsel-rx = <MA35_PDMA_REQ_UART12_RX>;
 		pdma-enable = <0>;
 		status = "disabled";
 	};
@@ -245,6 +261,8 @@
 		interrupts = <GIC_SPI 120 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk UART14_GATE>;
 		port-number = <14>;
+		nuvoton,pdma-reqsel-tx = <MA35_PDMA_REQ_UART14_TX>;
+		nuvoton,pdma-reqsel-rx = <MA35_PDMA_REQ_UART14_RX>;
 		pdma-enable = <0>;
 		status = "disabled";
 	};
@@ -255,6 +273,8 @@
 		interrupts = <GIC_SPI 121 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk UART15_GATE>;
 		port-number = <15>;
+		nuvoton,pdma-reqsel-tx = <MA35_PDMA_REQ_UART15_TX>;
+		nuvoton,pdma-reqsel-rx = <MA35_PDMA_REQ_UART15_RX>;
 		pdma-enable = <0>;
 		status = "disabled";
 	};
@@ -265,6 +285,8 @@
 		interrupts = <GIC_SPI 122 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk UART16_GATE>;
 		port-number = <16>;
+		nuvoton,pdma-reqsel-tx = <MA35_PDMA_REQ_UART16_TX>;
+		nuvoton,pdma-reqsel-rx = <MA35_PDMA_REQ_UART16_RX>;
 		pdma-enable = <0>;
 		status = "disabled";
 	};

@@ -1,21 +1,24 @@
 # SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 %YAML 1.2
 ---
-$id: http://devicetree.org/schemas/serial/nuvoton,ma35d1-serial.yaml#
+$id: http://devicetree.org/schemas/serial/nuvoton,ma35d1-uart.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Nuvoton MA35D1 Universal Asynchronous Receiver/Transmitter (UART)
+title: Nuvoton MA35 Series UART Controller
+
+description: |
+  Devicetree bindings for the UART controllers found in Nuvoton
+  MA35D1, MA35H0 and MA35D0 SoCs.
 
 maintainers:
-  - Min-Jen Chen <mjchen@nuvoton.com>
-  - Jacky Huang <ychuang3@nuvoton.com>
-
-allOf:
-  - $ref: serial.yaml
+  - Nuvoton Technology Corporation <cwweng@nuvoton.com>
 
 properties:
   compatible:
-    const: nuvoton,ma35d1-uart
+    enum:
+      - nuvoton,ma35d1-uart
+      - nuvoton,ma35h0-uart
+      - nuvoton,ma35d0-uart
 
   reg:
     maxItems: 1
@@ -26,11 +29,105 @@ properties:
   clocks:
     maxItems: 1
 
+  ma35d1-console:
+    description: Indicates that this UART is used as the system console.
+    type: boolean
+
+  port-number:
+    description: UART port index assigned to this controller.
+    $ref: /schemas/types.yaml#/definitions/uint32
+    minimum: 0
+    maximum: 16
+
+  pdma-enable:
+    description: Enable (1) or disable (0) UART PDMA transfers.
+    $ref: /schemas/types.yaml#/definitions/uint32
+    enum: [0, 1]
+
+  dmas:
+    minItems: 1
+    maxItems: 2
+
+  dma-names:
+    minItems: 1
+    maxItems: 2
+    items:
+      enum: [tx, rx]
+
+  nuvoton,pdma-reqsel-tx:
+    description: |
+      UART TX PDMA request selector. Read by the MA35D1 and MA35D0
+      drivers when PDMA is enabled; MA35H0 selects the request internally.
+    $ref: /schemas/types.yaml#/definitions/uint32
+    enum: [4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30,
+           32, 34, 36]
+
+  nuvoton,pdma-reqsel-rx:
+    description: |
+      UART RX PDMA request selector. Required by the MA35D1 and MA35D0
+      drivers only when EN_UART_PDMA_RX is compiled in and PDMA is enabled.
+    $ref: /schemas/types.yaml#/definitions/uint32
+    enum: [5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31,
+           33, 35, 37]
+
+  wakeup-enable:
+    description: |
+      UART wakeup sources: <cts-wakeup fifo-threshold-wakeup
+      fifo-timeout-wakeup>. Each cell is 0 (disabled) or 1 (enabled).
+    $ref: /schemas/types.yaml#/definitions/uint32-array
+    minItems: 3
+    maxItems: 3
+    items:
+      enum: [0, 1]
+
+  fifo-threshold:
+    description: |
+      RX FIFO threshold for FIFO-threshold wakeup: 1, 4, 8, 14 or 30 bytes.
+    $ref: /schemas/types.yaml#/definitions/uint32
+    enum: [1, 4, 8, 14, 30]
+
 required:
   - compatible
   - reg
   - interrupts
   - clocks
+  - port-number
+  - pdma-enable
+
+dependencies:
+  dmas: [dma-names]
+  dma-names: [dmas]
+
+allOf:
+  - $ref: serial.yaml#
+  - if:
+      properties:
+        pdma-enable:
+          const: 1
+      required:
+        - pdma-enable
+    then:
+      required:
+        - dmas
+        - dma-names
+      properties:
+        dma-names:
+          contains:
+            const: tx
+  - if:
+      properties:
+        compatible:
+          enum:
+            - nuvoton,ma35d1-uart
+            - nuvoton,ma35d0-uart
+        pdma-enable:
+          const: 1
+      required:
+        - compatible
+        - pdma-enable
+    then:
+      required:
+        - nuvoton,pdma-reqsel-tx
 
 unevaluatedProperties: false
 
@@ -41,8 +138,30 @@ examples:
 
     serial@40700000 {
         compatible = "nuvoton,ma35d1-uart";
-        reg = <0x40700000 0x100>;
+        reg = <0x0 0x40700000 0x0 0x10000>;
+        ma35d1-console;
         interrupts = <GIC_SPI 59 IRQ_TYPE_LEVEL_HIGH>;
         clocks = <&clk UART0_GATE>;
+        port-number = <0>;
+        pdma-enable = <0>;
+        status = "okay";
+    };
+  - |
+    #include <dt-bindings/dma/nuvoton,ma35-pdma.h>
+    #include <dt-bindings/interrupt-controller/arm-gic.h>
+    #include <dt-bindings/clock/nuvoton,ma35d1-clk.h>
+
+    serial@40710000 {
+        compatible = "nuvoton,ma35d1-uart";
+        reg = <0x0 0x40710000 0x0 0x10000>;
+        interrupts = <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>;
+        clocks = <&clk UART1_GATE>;
+        port-number = <1>;
+        dmas = <&pdma2 2>, <&pdma3 3>;
+        dma-names = "tx", "rx";
+        nuvoton,pdma-reqsel-tx = <MA35_PDMA_REQ_UART1_TX>;
+        nuvoton,pdma-reqsel-rx = <MA35_PDMA_REQ_UART1_RX>;
+        pdma-enable = <1>;
+        status = "disabled";
     };
 ...
