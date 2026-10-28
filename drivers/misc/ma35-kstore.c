@@ -11,10 +11,12 @@
  */
 
 #include <linux/io.h>
+#include <linux/iopoll.h>
 #include <linux/miscdevice.h>
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/clk.h>
 #include <linux/of_platform.h>
 #include <linux/poll.h>
@@ -29,11 +31,31 @@
 
 #define KS_BUSY_TIMEOUT		1000
 
+#define OTP_NS_OFFSET_FROM_KS	0x10000
+#define OTP_NS_REG_SIZE		0x14
+#define OTP_BUSY_TIMEOUT_US	500000
+
+#define OTP_CTL			0x00
+#define OTP_CTL_START		BIT(0)
+#define OTP_CTL_PROGRAM		BIT(4)
+#define OTP_STS			0x04
+#define OTP_STS_BUSY		BIT(0)
+#define OTP_STS_PFF		BIT(1)
+#define OTP_STS_ADDRFF		BIT(2)
+#define OTP_STS_CMDFF		BIT(4)
+#define OTP_ADDR		0x08
+#define OTP_DATA		0x0C
+
+#define OTP_ADDR_MIN		0x100
+#define OTP_ADDR_END		0x1D0
+
 struct ma35_ks_dev {
 	struct device *dev;
 	struct miscdevice miscdev;
 	wait_queue_head_t waitq;
 	void __iomem *reg_base;
+	void __iomem *otp_base;
+	struct mutex otp_lock; /* serializes OTP controller access */
 	int irq;
 	int int_err_sts;
 };
@@ -69,6 +91,148 @@ static inline int ma35_ks_wait_busy_clear(struct ma35_ks_dev *ks_dev)
 		}
 	}
 	return 0;
+}
+
+static inline u32 ma35_otp_read_reg(struct ma35_ks_dev *ks_dev, u32 offset)
+{
+	return readl(ks_dev->otp_base + offset);
+}
+
+static inline void ma35_otp_write_reg(struct ma35_ks_dev *ks_dev,
+				      u32 offset, u32 value)
+{
+	writel(value, ks_dev->otp_base + offset);
+}
+
+static int ma35_otp_wait_busy_clear(struct ma35_ks_dev *ks_dev)
+{
+	u32 status;
+	int ret;
+
+	ret = readl_poll_timeout(ks_dev->otp_base + OTP_STS, status,
+				 !(status & OTP_STS_BUSY), 1,
+				 OTP_BUSY_TIMEOUT_US);
+	if (ret)
+		dev_err(ks_dev->dev, "OTP controller is busy\n");
+
+	return ret;
+}
+
+static int ma35_otp_read_word(struct ma35_ks_dev *ks_dev, u32 addr, u32 *data)
+{
+	u32 status;
+	int ret;
+
+	ret = ma35_otp_wait_busy_clear(ks_dev);
+	if (ret)
+		return ret;
+
+	ma35_otp_write_reg(ks_dev, OTP_STS, OTP_STS_ADDRFF | OTP_STS_CMDFF);
+	ma35_otp_write_reg(ks_dev, OTP_ADDR, addr);
+	ma35_otp_write_reg(ks_dev, OTP_CTL, OTP_CTL_START);
+
+	ret = ma35_otp_wait_busy_clear(ks_dev);
+	if (ret)
+		return ret;
+
+	status = ma35_otp_read_reg(ks_dev, OTP_STS);
+	if (status & (OTP_STS_ADDRFF | OTP_STS_CMDFF)) {
+		dev_err(ks_dev->dev,
+			"OTP read failed at 0x%x, status=0x%x\n", addr, status);
+		ma35_otp_write_reg(ks_dev, OTP_STS,
+				   OTP_STS_ADDRFF | OTP_STS_CMDFF);
+		return -EIO;
+	}
+
+	*data = ma35_otp_read_reg(ks_dev, OTP_DATA);
+	return 0;
+}
+
+static int ma35_otp_program_word(struct ma35_ks_dev *ks_dev, u32 addr, u32 data)
+{
+	u32 status;
+	int ret;
+
+	ret = ma35_otp_wait_busy_clear(ks_dev);
+	if (ret)
+		return ret;
+
+	ma35_otp_write_reg(ks_dev, OTP_STS,
+			   OTP_STS_PFF | OTP_STS_ADDRFF | OTP_STS_CMDFF);
+	ma35_otp_write_reg(ks_dev, OTP_ADDR, addr);
+	ma35_otp_write_reg(ks_dev, OTP_DATA, data);
+	ma35_otp_write_reg(ks_dev, OTP_CTL, OTP_CTL_PROGRAM | OTP_CTL_START);
+
+	ret = ma35_otp_wait_busy_clear(ks_dev);
+	if (ret)
+		return ret;
+
+	status = ma35_otp_read_reg(ks_dev, OTP_STS);
+	if (status & (OTP_STS_PFF | OTP_STS_ADDRFF | OTP_STS_CMDFF)) {
+		dev_err(ks_dev->dev,
+			"OTP program failed at 0x%x, status=0x%x\n",
+			addr, status);
+		ma35_otp_write_reg(ks_dev, OTP_STS,
+				   OTP_STS_PFF | OTP_STS_ADDRFF |
+				   OTP_STS_CMDFF);
+		return -EIO;
+	}
+
+	return 0;
+}
+
+static int ma35_otp_read(struct ma35_ks_dev *ks_dev, void __user *arg)
+{
+	struct ks_read_args r_args;
+	int i;
+	int ret;
+
+	if (copy_from_user(&r_args, arg, sizeof(r_args)))
+		return -EFAULT;
+
+	if (r_args.word_cnt <= 0 ||
+	    r_args.word_cnt > (int)ARRAY_SIZE(r_args.key) ||
+	    r_args.key_idx < OTP_ADDR_MIN || r_args.key_idx >= OTP_ADDR_END ||
+	    (r_args.key_idx & 3) ||
+	    r_args.word_cnt > (OTP_ADDR_END - r_args.key_idx) / 4)
+		return -EINVAL;
+
+	mutex_lock(&ks_dev->otp_lock);
+	for (i = 0; i < r_args.word_cnt; i++) {
+		ret = ma35_otp_read_word(ks_dev, r_args.key_idx + i * 4,
+					 &r_args.key[i]);
+		if (ret)
+			goto out_unlock;
+	}
+	mutex_unlock(&ks_dev->otp_lock);
+
+	return copy_to_user(arg, &r_args, sizeof(r_args)) ? -EFAULT : 0;
+
+out_unlock:
+	mutex_unlock(&ks_dev->otp_lock);
+	return ret;
+}
+
+static int ma35_otp_program(struct ma35_ks_dev *ks_dev, void __user *arg)
+{
+	struct ks_read_args p_args;
+	u32 data;
+	int ret;
+
+	if (copy_from_user(&p_args, arg, sizeof(p_args)))
+		return -EFAULT;
+
+	data = p_args.key[0];
+	if (p_args.word_cnt != 1 ||
+	    p_args.key_idx < OTP_ADDR_MIN || p_args.key_idx >= OTP_ADDR_END ||
+	    (p_args.key_idx & 3) || !data || (data & (data - 1)))
+		return -EINVAL;
+
+	mutex_lock(&ks_dev->otp_lock);
+	ret = ma35_otp_program_word(ks_dev, p_args.key_idx, data);
+	mutex_unlock(&ks_dev->otp_lock);
+
+	return ret;
 }
 
 static int ma35_ks_read(struct ma35_ks_dev *ks_dev, void __user *arg)
@@ -445,6 +609,14 @@ static long ks_dev_ioctl(struct file *fptr, unsigned int cmd, unsigned long data
 	case NU_KS_IOCTL_GET_REMAIN:
 		rval = ma35_ks_remain(ks_dev);
 		break;
+	case NU_KS_IOCTL_OTP_READ:
+		rval = ma35_otp_read(ks_dev, argp);
+		break;
+
+	case NU_KS_IOCTL_OTP_WRITE:
+		rval = ma35_otp_program(ks_dev, argp);
+		break;
+
 	default:
 		/* Should not get here */
 		break;
@@ -477,11 +649,18 @@ static int ma35_ks_probe(struct platform_device *pdev)
 	if (IS_ERR(ks_dev->reg_base))
 		return PTR_ERR(ks_dev->reg_base);
 
+	ks_dev->otp_base = devm_ioremap(dev,
+					res->start + OTP_NS_OFFSET_FROM_KS,
+					OTP_NS_REG_SIZE);
+	if (!ks_dev->otp_base)
+		return -ENOMEM;
+
 	ks_dev->irq = platform_get_irq(pdev, 0);
 	if (ks_dev->irq < 0) {
 		dev_dbg(dev, "platform_get_irq failed");
 		return -EINVAL;
 	}
+	mutex_init(&ks_dev->otp_lock);
 
 	/* Save driver private data */
 	platform_set_drvdata(pdev, ks_dev);

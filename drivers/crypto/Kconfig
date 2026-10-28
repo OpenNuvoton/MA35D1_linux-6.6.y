@@ -689,6 +689,9 @@ config CRYPTO_DEV_NUVOTON_MA35
 	select CRYPTO_AEAD
 	select CRYPTO_BLKCIPHER
 	select CRYPTO_SHA256
+	select CRYPTO_SHA512
+	select CRYPTO_SHA3
+	select CRYPTO_HMAC
 	select CRYPTO_ECDH
 	select CRYPTO_RSA
 	help
