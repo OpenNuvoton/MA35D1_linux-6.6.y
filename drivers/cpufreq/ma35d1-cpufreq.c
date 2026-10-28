@@ -71,9 +71,8 @@ static int ma35d1_cpufreq_init(struct cpufreq_policy *policy)
 	return 0;
 }
 
-static int ma35d1_cpufreq_exit(struct cpufreq_policy *policy)
+static void ma35d1_cpufreq_exit(struct cpufreq_policy *policy)
 {
-	return 0;
 }
 
 static struct cpufreq_driver ma35d1_driver = {
