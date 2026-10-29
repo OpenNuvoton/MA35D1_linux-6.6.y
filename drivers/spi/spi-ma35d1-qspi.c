@@ -9,6 +9,12 @@
  */
 
 #include <linux/clk.h>
+#include <linux/completion.h>
+#include <linux/dmaengine.h>
+#include <linux/dma-mapping.h>
+#include <linux/jiffies.h>
+#include <linux/slab.h>
+#include <linux/err.h>
 #include <linux/io.h>
 #include <linux/iopoll.h>
 #include <linux/module.h>
@@ -17,7 +23,6 @@
 #include <linux/pm_runtime.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/spi-mem.h>
-#include <linux/wait.h>
 
 #include <linux/interrupt.h>
 #include <linux/of.h>
@@ -121,35 +126,24 @@ struct nuvoton_spi {
 	struct mutex                    mutex_lock;
 	spinlock_t                      lock;
 	struct resource                 *res;
-	struct ma35d1_dma_done          dma_slave_rxdone;
-	struct ma35d1_dma_done          dma_slave_txdone;
 	struct ma35d1_ip_dma            dma;
-	int                             slave_txdone_state;
-	int                             slave_rxdone_state;
-	struct wait_queue_head          slave_txdone;
-	struct wait_queue_head          slave_rxdone;
 	unsigned int                    phyaddr;
 	unsigned int			cur_speed_hz;
+	unsigned int			last_xfer_len;
 };
 
 static void ma35d1_slave_txdma_callback(void *arg)
 {
-	struct nuvoton_spi *hw = (struct nuvoton_spi *)arg;
-	struct ma35d1_dma_done *done = &hw->dma_slave_txdone;
+	struct nuvoton_spi *hw = arg;
 
-	done->done = true;
-	hw->slave_txdone_state = 1;
-	wake_up_interruptible(&hw->slave_txdone);
+	complete(&hw->txdone);
 }
 
 static void ma35d1_slave_rxdma_callback(void *arg)
 {
-	struct nuvoton_spi *hw = (struct nuvoton_spi *)arg;
-	struct ma35d1_dma_done *done = &hw->dma_slave_rxdone;
+	struct nuvoton_spi *hw = arg;
 
-	done->done = true;
-	hw->slave_rxdone_state = 1;
-	wake_up_interruptible(&hw->slave_rxdone);
+	complete(&hw->rxdone);
 }
 
 static int nuvoton_spi_clk_enable(struct nuvoton_spi *nuvoton)
@@ -176,8 +170,13 @@ static int nuvoton_spi_clk_setup(struct nuvoton_spi *hw, unsigned long freq)
 	unsigned int clk;
 	unsigned int div;
 
-	//clk = clk_get_rate(hw->clk);
-	clk = 180000000;
+	if (!freq)
+		return -EINVAL;
+
+	clk = clk_get_rate(hw->clk);
+	if (!clk)
+		return -EINVAL;
+
 	div = DIV_ROUND_UP(clk, freq) - 1;
 	hw->pdata->hz = freq;
 	hw->pdata->divider = div;
@@ -398,28 +397,67 @@ static inline void hw_rx(struct nuvoton_spi *hw, unsigned int data, int count)
 		rx_int[count] = data;
 }
 
+/* The completion is signalled by the PDMA callback, not by a signal. */
+static int nuvoton_spi_dma_wait(struct nuvoton_spi *hw,
+			       struct completion *done, const char *direction)
+{
+	unsigned long timeout;
+
+	timeout = wait_for_completion_timeout(done,
+				msecs_to_jiffies(SPI_GENERAL_TIMEOUT_MS));
+	if (!timeout) {
+		dev_err(hw->dev,
+			"QSPI %s DMA timeout: STATUS=0x%08x, len=%u\n",
+			direction, __raw_readl(hw->regs + REG_STATUS),
+			hw->last_xfer_len);
+		return -ETIMEDOUT;
+	}
+
+	return 0;
+}
+
+/* Return to the baseline 8-bit PIO transfer configuration. */
+static void nuvoton_spi_pdma_restore(struct nuvoton_spi *hw)
+{
+	u32 ctl;
+
+	ctl = __raw_readl(hw->regs + REG_CTL);
+	__raw_writel(ctl & ~SPIEN, hw->regs + REG_CTL);
+	__raw_writel(__raw_readl(hw->regs + REG_PDMACTL) &
+		     ~(TXPDMAEN | RXPDMAEN), hw->regs + REG_PDMACTL);
+
+	ctl = __raw_readl(hw->regs + REG_CTL);
+	ctl &= ~(DWIDTH_MASK | BYTE_REORDER | QUADIOEN | DATDIR);
+	ctl |= 8 << DWIDTH_POS;
+	__raw_writel(ctl, hw->regs + REG_CTL);
+	__raw_writel(ctl | SPIEN, hw->regs + REG_CTL);
+}
+
 static int nuvoton_spi_data_xfer(struct nuvoton_spi *hw, const void *txbuf,
-                                 void *rxbuf, unsigned int len)
+				void *rxbuf, unsigned int len)
 {
 	struct ma35d1_ip_dma *pdma = &hw->dma;
-	struct ma35d1_peripheral pcfg;
-	unsigned int  non_tx_align_len = 0;
-	unsigned int  non_rx_align_len = 0;
+	struct ma35d1_peripheral pcfg = { 0 };
 	unsigned long end;
 	unsigned int  i;
 
-	__raw_writel(__raw_readl(hw->regs + REG_FIFOCTL) | (TXRST | RXRST), hw->regs + REG_FIFOCTL);
+	hw->last_xfer_len = len;
+	/* Linux 6.6 hardware reset sequence: preserve TXRST/RXRST. */
+	if (!len)
+		return 0;
+	__raw_writel(__raw_readl(hw->regs + REG_FIFOCTL) | (TXRST | RXRST),
+		     hw->regs + REG_FIFOCTL);
 	end = jiffies + msecs_to_jiffies(SPI_GENERAL_TIMEOUT_MS);
 	while (__raw_readl(hw->regs + REG_STATUS) & TXRXRST) {
 		if (time_after(jiffies, end)) {
-			printk("SPI TXRXRST timeout: %d\n", __LINE__);
+			dev_err(hw->dev, "QSPI FIFO reset timeout: STATUS=0x%08x, len=%u\n",
+				__raw_readl(hw->regs + REG_STATUS), len);
 			return -ETIMEDOUT;
 		}
 	}
 
 	hw->tx = txbuf;
 	hw->rx = rxbuf;
-
 	/* Use PDMA or not from device tree */
 	if (hw->pdata->use_pdma) {
 
@@ -455,191 +493,247 @@ static int nuvoton_spi_data_xfer(struct nuvoton_spi *hw, const void *txbuf,
 					return -ETIMEDOUT;
 				}
 			}
-		} else { /* Long length transfer by PDMA */
-			int pdma_en = 0;
-			int ret;
-			int tx_dummy = 0;
 
-			if (txbuf == NULL) {
-				tx_dummy = 1;
-				txbuf = (void *)(kmalloc(len, GFP_KERNEL));
+		} else { /* Long length transfer by PDMA */
+			const void *dma_txbuf = txbuf;
+			void *dummy_txbuf = NULL;
+			dma_cookie_t cookie;
+			bool tx_mapped = false, rx_mapped = false;
+			bool tx_prepared = false, rx_prepared = false;
+			bool tx_started = false, rx_started = false;
+			struct device *tx_dma_dev = NULL;
+			struct device *rx_dma_dev = NULL;
+			bool width_4;
+			int pdma_en = 0;
+			int tx_ret = 0, rx_ret = 0;
+			int term_ret;
+			int ret = 0;
+
+			/* RX needs dummy TX data to generate SPI clocks. */
+			if (!dma_txbuf) {
+				dummy_txbuf = kzalloc(len, GFP_KERNEL);
+				if (!dummy_txbuf)
+					return -ENOMEM;
+				dma_txbuf = dummy_txbuf;
 			}
 
 			end = jiffies + msecs_to_jiffies(SPI_GENERAL_TIMEOUT_MS);
-			__raw_writel(__raw_readl(hw->regs + REG_FIFOCTL) | (TXFBCLR | RXFBCLR), hw->regs + REG_FIFOCTL);
+			__raw_writel(__raw_readl(hw->regs + REG_FIFOCTL) |
+				     (TXFBCLR | RXFBCLR), hw->regs + REG_FIFOCTL);
 			while (__raw_readl(hw->regs + REG_STATUS) & FIFOCLR) {
-				if (time_after(jiffies, end)) {
-					printk("SPI FIFOCLR timeout: %d\n", __LINE__);
-					return -ETIMEDOUT;
+				if (time_after_eq(jiffies, end)) {
+					dev_err(hw->dev,
+						"QSPI PDMA FIFO clear timeout: STATUS=0x%08x, len=%u\n",
+						__raw_readl(hw->regs + REG_STATUS), len);
+					ret = -ETIMEDOUT;
+					goto pdma_cleanup;
 				}
+				cpu_relax();
 			}
 
-			non_rx_align_len = 0;
-			non_tx_align_len = 0;
-			/* Transfer the rest data starting at alignment address by PDMA */
+			width_4 = !(len & 3) &&
+				  !((unsigned long)dma_txbuf & 3) &&
+				  (!rxbuf || !((unsigned long)rxbuf & 3));
+
+			/* Re-arm both completions before either DMA is submitted. */
+			reinit_completion(&hw->txdone);
+			reinit_completion(&hw->rxdone);
+
 			if (rxbuf) {
-
-				/* prepare the RX dma transfer */
+				rx_dma_dev = dmaengine_get_dma_device(pdma->chan_rx);
 				sg_init_table(&pdma->sgrx, 1);
-				pdma->slave_config.src_addr = (hw->phyaddr + REG_RX);
+				pdma->slave_config.src_addr = hw->phyaddr + REG_RX;
+				pdma->slave_config.src_addr_width = width_4 ?
+					DMA_SLAVE_BUSWIDTH_4_BYTES :
+					DMA_SLAVE_BUSWIDTH_1_BYTE;
+				/*
+				 * The Linux 6.6 PDMA provider expects transfer COUNT
+				 * here, not the standard DMAengine byte length. Keep this
+				 * legacy convention until both drivers change together.
+				 */
+				pdma->sgrx.dma_length = width_4 ? len >> 2 : len;
 
-				if (((len % 4) == 0) && (((unsigned long)rxbuf % 4) == 0) &&
-				    ((txbuf == NULL) || (((unsigned long)txbuf % 4) == 0))) {
-					pdma->slave_config.src_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
-					pdma->sgrx.dma_length = (len - non_rx_align_len) >> 2; /* divide 4 */
-					__raw_writel(((__raw_readl(hw->regs + REG_CTL) & ~(DWIDTH_MASK))
-					              | BYTE_REORDER), hw->regs + REG_CTL); //32 bits, byte reorder
-
-				} else {
-					pdma->slave_config.src_addr_width = DMA_SLAVE_BUSWIDTH_1_BYTE;
-					pdma->sgrx.dma_length = len;
-				}
-
-				dmaengine_terminate_all(pdma->chan_rx);
 				pdma->slave_config.direction = DMA_DEV_TO_MEM;
 				pcfg.reqsel = hw->pdata->pdma_reqsel_rx;
 				pdma->slave_config.peripheral_config = &pcfg;
 				pdma->slave_config.peripheral_size = sizeof(pcfg);
-				dmaengine_slave_config(pdma->chan_rx, &(pdma->slave_config));
+				ret = dmaengine_slave_config(pdma->chan_rx,
+							     &pdma->slave_config);
+				if (ret) {
+					dev_err(hw->dev, "QSPI RX DMA config failed: %d\n", ret);
+					goto pdma_cleanup;
+				}
 
-				/* Map rxbuf to physical address including non-alignment part */
-				pdma->sgrx.dma_address = dma_map_single(hw->dev,
-				                                        (void *)(rxbuf),
-				                                        len, DMA_FROM_DEVICE);
-				if (dma_mapping_error(hw->dev, pdma->sgrx.dma_address))
-					dev_err(hw->dev, "tx dma map error\n");
-
-				/* Adjust physical address that skip non-alignment part */
-				pdma->sgrx.dma_address += non_rx_align_len;
+				pdma->sgrx.dma_address = dma_map_single(rx_dma_dev, rxbuf,
+								   len, DMA_FROM_DEVICE);
+				if (dma_mapping_error(rx_dma_dev, pdma->sgrx.dma_address)) {
+					dev_err(hw->dev, "QSPI RX DMA mapping failed\n");
+					ret = -ENOMEM;
+					goto pdma_cleanup;
+				}
+				rx_mapped = true;
 
 				pdma->rxdesc = dmaengine_prep_slave_sg(pdma->chan_rx,
-				                                       &pdma->sgrx,
-				                                       1,
-				                                       DMA_DEV_TO_MEM,
-				                                       DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
+									 &pdma->sgrx, 1,
+									 DMA_DEV_TO_MEM,
+									 DMA_PREP_INTERRUPT |
+									 DMA_CTRL_ACK);
 				if (!pdma->rxdesc) {
-					dev_err(hw->dev, "pdma->rxdesc=NULL\n");
-					BUG();
+					dev_err(hw->dev, "QSPI RX DMA descriptor failed\n");
+					ret = -EIO;
+					goto pdma_cleanup;
 				}
-				hw->dma_slave_rxdone.done = false;
+
+				rx_prepared = true;
 				pdma->rxdesc->callback = ma35d1_slave_rxdma_callback;
 				pdma->rxdesc->callback_param = hw;
-				dmaengine_submit(pdma->rxdesc);
-				dma_async_issue_pending(pdma->chan_rx);
-
-			} /* rxbuf */
-
-			if (txbuf) {
-				/* prepare the TX dma transfer */
-				sg_init_table(&pdma->sgtx, 1);
-				pdma->slave_config.dst_addr = (hw->phyaddr + REG_TX);
-				if (((len % 4) == 0) && (((unsigned long)txbuf % 4) == 0) &&
-				    ((rxbuf == NULL) || (((unsigned long)rxbuf % 4) == 0))) {
-					pdma->slave_config.dst_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
-					pdma->sgtx.dma_length = (len - non_tx_align_len) >> 2; /* divide 4 */
-					__raw_writel(((__raw_readl(hw->regs + REG_CTL) & ~(DWIDTH_MASK))
-					              | BYTE_REORDER), hw->regs + REG_CTL); //32 bits, byte reorder
-				} else {
-					pdma->slave_config.dst_addr_width = DMA_SLAVE_BUSWIDTH_1_BYTE;
-					pdma->sgtx.dma_length = len;
+				cookie = dmaengine_submit(pdma->rxdesc);
+				ret = dma_submit_error(cookie);
+				if (ret) {
+					dev_err(hw->dev, "QSPI RX DMA submit failed: %d\n", ret);
+					goto pdma_cleanup;
 				}
+				rx_started = true;
+				dma_async_issue_pending(pdma->chan_rx);
+				pdma_en |= RXPDMAEN;
+			}
 
-				dmaengine_terminate_all(pdma->chan_tx);
+			if (dma_txbuf) {
+				tx_dma_dev = dmaengine_get_dma_device(pdma->chan_tx);
+				sg_init_table(&pdma->sgtx, 1);
+				pdma->slave_config.dst_addr = hw->phyaddr + REG_TX;
+				pdma->slave_config.dst_addr_width = width_4 ?
+					DMA_SLAVE_BUSWIDTH_4_BYTES :
+					DMA_SLAVE_BUSWIDTH_1_BYTE;
+				pdma->sgtx.dma_length = width_4 ? len >> 2 : len;
+
 				pdma->slave_config.direction = DMA_MEM_TO_DEV;
 				pcfg.reqsel = hw->pdata->pdma_reqsel_tx;
 				pdma->slave_config.peripheral_config = &pcfg;
 				pdma->slave_config.peripheral_size = sizeof(pcfg);
-				dmaengine_slave_config(pdma->chan_tx, &(pdma->slave_config));
-
-				/* Map t->tx_buf to physical address including non-alignment part */
-				pdma->sgtx.dma_address = dma_map_single(hw->dev,
-				                                        (void *)txbuf,
-				                                        len, DMA_TO_DEVICE);
-				if (dma_mapping_error(hw->dev, pdma->sgtx.dma_address))
-					dev_err(hw->dev, "tx dma map error\n");
-
-				/* Adjust physical address that skip non-alignment part */
-				pdma->sgtx.dma_address += non_tx_align_len;
-				dma_sync_single_for_device(hw->dev, pdma->sgtx.dma_address - non_tx_align_len, len, DMA_TO_DEVICE);
-
-				pdma->txdesc = dmaengine_prep_slave_sg(pdma->chan_tx,
-				                                       &pdma->sgtx,
-				                                       1,
-				                                       DMA_MEM_TO_DEV,
-				                                       DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
-				if (!pdma->txdesc) {
-					dev_err(hw->dev, "pdma->txdex=NULL\n");
-					BUG();
+				ret = dmaengine_slave_config(pdma->chan_tx,
+							     &pdma->slave_config);
+				if (ret) {
+					dev_err(hw->dev, "QSPI TX DMA config failed: %d\n", ret);
+					goto pdma_cleanup;
 				}
 
+				pdma->sgtx.dma_address = dma_map_single(tx_dma_dev,
+									   (void *)dma_txbuf,
+									   len, DMA_TO_DEVICE);
+				if (dma_mapping_error(tx_dma_dev, pdma->sgtx.dma_address)) {
+					dev_err(hw->dev, "QSPI TX DMA mapping failed\n");
+					ret = -ENOMEM;
+					goto pdma_cleanup;
+				}
+				tx_mapped = true;
+
+				pdma->txdesc = dmaengine_prep_slave_sg(pdma->chan_tx,
+									 &pdma->sgtx, 1,
+									 DMA_MEM_TO_DEV,
+									 DMA_PREP_INTERRUPT |
+									 DMA_CTRL_ACK);
+				if (!pdma->txdesc) {
+					dev_err(hw->dev, "QSPI TX DMA descriptor failed\n");
+					ret = -EIO;
+					goto pdma_cleanup;
+				}
+
+				tx_prepared = true;
 				pdma->txdesc->callback = ma35d1_slave_txdma_callback;
 				pdma->txdesc->callback_param = hw;
-				dmaengine_submit(pdma->txdesc);
+				cookie = dmaengine_submit(pdma->txdesc);
+				ret = dma_submit_error(cookie);
+				if (ret) {
+					dev_err(hw->dev, "QSPI TX DMA submit failed: %d\n", ret);
+					goto pdma_cleanup;
+				}
+				tx_started = true;
 				dma_async_issue_pending(pdma->chan_tx);
-
-			} /* txbuf */
-
-			/* Trigger PDMA */
-			if (rxbuf) {
-				pdma_en |= RXPDMAEN;
-				hw->slave_rxdone_state = 0;
-			}
-
-			if (txbuf) {
-				hw->slave_txdone_state = 0;
 				pdma_en |= TXPDMAEN;
 			}
 
+			if (width_4)
+				__raw_writel((__raw_readl(hw->regs + REG_CTL) &
+					      ~DWIDTH_MASK) | BYTE_REORDER,
+					     hw->regs + REG_CTL);
+
 			__raw_writel(UNITIF, hw->regs + REG_STATUS);
-			__raw_writel(__raw_readl(hw->regs + REG_PDMACTL) | (pdma_en),
-			             hw->regs + REG_PDMACTL); //Enable SPIx PDMA
+			__raw_writel(__raw_readl(hw->regs + REG_PDMACTL) | pdma_en,
+				     hw->regs + REG_PDMACTL);
 
-			if (txbuf) {
-				ret = wait_event_interruptible_timeout(hw->slave_txdone, hw->slave_txdone_state != 0,
-				                                       msecs_to_jiffies(SPI_GENERAL_TIMEOUT_MS));
-				if (!ret)
-					printk("\n\nSPI DMA TIMEOUT - %d\n", __LINE__);
-				hw->slave_txdone_state = 0;
-			}
-			if (rxbuf) {
-				ret = wait_event_interruptible_timeout(hw->slave_rxdone, hw->slave_rxdone_state != 0,
-				                                       msecs_to_jiffies(SPI_GENERAL_TIMEOUT_MS));
-				if (!ret)
-					printk("\n\nSPI DMA TIMEOUT - %d\n", __LINE__);
-				hw->slave_rxdone_state = 0;
-			}
+			if (tx_started)
+				tx_ret = nuvoton_spi_dma_wait(hw, &hw->txdone, "TX");
 
-			end = jiffies + msecs_to_jiffies(SPI_GENERAL_TIMEOUT_MS);
-			while (__raw_readl(hw->regs + REG_STATUS) & BUSY) {
-				if (time_after(jiffies, end)) {
-					printk("SPI PDMA BUSY timeout: %d\n", __LINE__);
-					return -ETIMEDOUT;
+			/* On timeout, stop both DMA channels rather than wait again. */
+			if (rx_started && !tx_ret)
+				rx_ret = nuvoton_spi_dma_wait(hw, &hw->rxdone, "RX");
+
+			/* Keep TX/RX errors independent: successful RX must not mask TX. */
+			if (tx_ret)
+				ret = tx_ret;
+			else if (rx_ret)
+				ret = rx_ret;
+
+			if (!ret) {
+				end = jiffies + msecs_to_jiffies(SPI_GENERAL_TIMEOUT_MS);
+				while (__raw_readl(hw->regs + REG_STATUS) & BUSY) {
+					if (time_after_eq(jiffies, end)) {
+						dev_err(hw->dev,
+							"QSPI PDMA BUSY timeout: STATUS=0x%08x, len=%u\n",
+							__raw_readl(hw->regs + REG_STATUS), len);
+						ret = -ETIMEDOUT;
+						break;
+					}
+					cpu_relax();
 				}
 			}
 
-			__raw_writel((__raw_readl(hw->regs + REG_CTL) & ~SPIEN), hw->regs + REG_CTL); //Disable SPIEN
-			__raw_writel(__raw_readl(hw->regs + REG_PDMACTL) & ~(TXPDMAEN | RXPDMAEN),
-			             hw->regs + REG_PDMACTL); //Disable SPIx TX/RX PDMA
-			__raw_writel(((__raw_readl(hw->regs + REG_CTL) & ~(DWIDTH_MASK | BYTE_REORDER))
-			              | (8 << DWIDTH_POS)), hw->regs + REG_CTL); //8 bits, no byte reorder
-			__raw_writel((__raw_readl(hw->regs + REG_CTL) & ~(QUADIOEN | DATDIR)),
-			             hw->regs + REG_CTL); //Disable Quad mode, direction input
-			__raw_writel((__raw_readl(hw->regs + REG_CTL) | SPIEN), hw->regs + REG_CTL); //Enable SPIEN
-
-			/* unmap buffers if mapped above, restore map address that includes non-alignment part */
-			if (rxbuf)
-				dma_unmap_single(hw->dev, pdma->sgrx.dma_address - non_rx_align_len, len,
-				                 DMA_FROM_DEVICE);
-			if (txbuf) {
-				dma_unmap_single(hw->dev, pdma->sgtx.dma_address - non_tx_align_len, len,
-				                 DMA_TO_DEVICE);
-
-				if (tx_dummy == 1)
-					kfree((void *)txbuf);
+pdma_cleanup:
+			/*
+			 * Gate new peripheral DMA requests before terminating the
+			 * DMAengine channels.  terminate_sync() stops channel work
+			 * and waits for callbacks before buffer mappings are removed.
+			 * This relies on the PDMA provider implementing terminate_all()
+			 * and device_synchronize() correctly.
+			 */
+			__raw_writel(__raw_readl(hw->regs + REG_PDMACTL) &
+				     ~(TXPDMAEN | RXPDMAEN), hw->regs + REG_PDMACTL);
+			/* Flush the register write before terminating the DMA channels. */
+			__raw_readl(hw->regs + REG_PDMACTL);
+			if (ret) {
+				if (tx_prepared) {
+					term_ret = dmaengine_terminate_sync(pdma->chan_tx);
+					if (term_ret) {
+						dev_err(hw->dev, "QSPI TX DMA terminate failed: %d\n",
+							term_ret);
+						/* Buffer reuse is unsafe if termination failed. */
+					}
+				}
+				if (rx_prepared) {
+					term_ret = dmaengine_terminate_sync(pdma->chan_rx);
+					if (term_ret) {
+						dev_err(hw->dev, "QSPI RX DMA terminate failed: %d\n",
+							term_ret);
+						/* Buffer reuse is unsafe if termination failed. */
+					}
+				}
 			}
+
+			nuvoton_spi_pdma_restore(hw);
+			if (rx_mapped)
+				dma_unmap_single(rx_dma_dev, pdma->sgrx.dma_address,
+							 len, DMA_FROM_DEVICE);
+			if (tx_mapped)
+				dma_unmap_single(tx_dma_dev, pdma->sgtx.dma_address,
+							 len, DMA_TO_DEVICE);
+			kfree(dummy_txbuf);
+			return ret;
+
 		}
 
 	} else { /* hw->pdata->use_pdma = 0 */
+
 		end = jiffies + msecs_to_jiffies(SPI_GENERAL_TIMEOUT_MS);
 		if (hw->rx) {
 			for (i = 0; i < len; i++) {
@@ -718,7 +812,10 @@ static void nuvoton_spi_set_cs(struct spi_device *spi, bool lvl)
 	end = jiffies + msecs_to_jiffies(3000);
 	while (__raw_readl(nuvoton->regs + REG_STATUS) & BUSY) {
 		if (time_after(jiffies, end)) {
-			printk("SPI BUSY timeout: %d, %s - %d\n", __LINE__, __func__, lvl);
+			dev_err(nuvoton->dev,
+				"QSPI CS BUSY timeout: STATUS=0x%08x, len=%u, cs=%u, level=%d\n",
+				__raw_readl(nuvoton->regs + REG_STATUS),
+				nuvoton->last_xfer_len, chip_select, lvl);
 			return;
 		}
 	}
@@ -818,20 +915,21 @@ static struct nuvoton_qspi_info *nuvoton_spi_parse_dt(struct device *dev)
 
 
 static int nuvoton_spi_mem_exec_op(struct spi_mem *mem,
-                                   const struct spi_mem_op *op)
+					const struct spi_mem_op *op)
 {
 	struct nuvoton_spi *nuvoton = spi_controller_get_devdata(mem->spi->controller);
 	int i, ret;
 	u8 addr[8];
 
 	mutex_lock(&nuvoton->mutex_lock);
-
 	ret = nuvoton_spi_set_freq(nuvoton, mem->spi->max_speed_hz);
 	if (ret) {
 		printk("nuvoton_spi_set_freq failed!\n");
 		goto out;
 	}
-	nuvoton_spi_setupxfer(mem->spi);
+	ret = nuvoton_spi_setupxfer(mem->spi);
+	if (ret)
+		goto out;
 
 	nuvoton_spi_set_cs(mem->spi, 0); //Activate CS
 
@@ -843,7 +941,7 @@ static int nuvoton_spi_mem_exec_op(struct spi_mem *mem,
 
 	if (op->addr.buswidth == 4)
 		__raw_writel((__raw_readl(nuvoton->regs + REG_CTL) | QUADIOEN | DATDIR),
-		             nuvoton->regs + REG_CTL); //Enable Quad mode, direction output
+				nuvoton->regs + REG_CTL); //Enable Quad mode, direction output
 
 	for (i = 0; i < op->addr.nbytes; i++)
 		addr[i] = op->addr.val >> (8 * (op->addr.nbytes - i - 1));
@@ -856,7 +954,7 @@ static int nuvoton_spi_mem_exec_op(struct spi_mem *mem,
 
 	if (op->dummy.buswidth == 4) {
 		__raw_writel((__raw_readl(nuvoton->regs + REG_CTL) | QUADIOEN | DATDIR),
-		             nuvoton->regs + REG_CTL); //Enable Quad mode, direction output
+		nuvoton->regs + REG_CTL); //Enable Quad mode, direction output
 	}
 
 	ret = nuvoton_spi_data_xfer(nuvoton, NULL, NULL, op->dummy.nbytes);
@@ -868,27 +966,26 @@ static int nuvoton_spi_mem_exec_op(struct spi_mem *mem,
 	if (op->data.buswidth == 4) {
 		if (op->data.dir == SPI_MEM_DATA_OUT)
 			__raw_writel(((__raw_readl(nuvoton->regs + REG_CTL) | QUADIOEN) | DATDIR),
-			             nuvoton->regs + REG_CTL);//Enable Quad mode, direction output
+					nuvoton->regs + REG_CTL);//Enable Quad mode, direction output
 		else if (op->data.dir == SPI_MEM_DATA_IN)
 			__raw_writel(((__raw_readl(nuvoton->regs + REG_CTL) | QUADIOEN) & ~DATDIR),
-			             nuvoton->regs + REG_CTL);//Enable Quad mode, direction input
+					nuvoton->regs + REG_CTL);//Enable Quad mode, direction input
 	}
 
 	ret = nuvoton_spi_data_xfer(nuvoton,
-	                            op->data.dir == SPI_MEM_DATA_OUT ?
-	                            op->data.buf.out : NULL,
-	                            op->data.dir == SPI_MEM_DATA_IN ?
-	                            op->data.buf.in : NULL,
-	                            op->data.nbytes);
+					op->data.dir == SPI_MEM_DATA_OUT ?
+					op->data.buf.out : NULL,
+					op->data.dir == SPI_MEM_DATA_IN ?
+					op->data.buf.in : NULL,
+					op->data.nbytes);
 
-	__raw_writel((__raw_readl(nuvoton->regs + REG_CTL) & ~(QUADIOEN | DATDIR)),
-	             nuvoton->regs + REG_CTL); //Restore to single mode, direction input
 out:
-
+	/* Restore normal bus width even when command/address/dummy fails. */
+	__raw_writel(__raw_readl(nuvoton->regs + REG_CTL) &
+		     ~(QUADIOEN | DATDIR), nuvoton->regs + REG_CTL);
 	nuvoton_spi_set_cs(mem->spi, 1); //Deactivate CS
 
 	mutex_unlock(&nuvoton->mutex_lock);
-
 	return ret;
 }
 
@@ -898,50 +995,58 @@ static const struct spi_controller_mem_ops nuvoton_spi_mem_ops = {
 };
 
 static int nuvoton_spi_transfer_one(struct spi_controller *host,
-                                    struct spi_device *spi,
-                                    struct spi_transfer *t)
+				   struct spi_device *spi,
+				   struct spi_transfer *t)
 {
 	struct nuvoton_spi *nuvoton = spi_controller_get_devdata(host);
 	unsigned int busw = OP_BUSW_1;
+	u32 ctl;
 	int ret;
 
-	nuvoton_spi_setupxfer(spi);
+	if (!t->len)
+		return 0;
 
 	if (t->rx_buf && t->tx_buf) {
-		if (((spi->mode & SPI_TX_QUAD) &&
-		     !(spi->mode & SPI_RX_QUAD)) ||
-		    ((spi->mode & SPI_TX_DUAL) &&
-		     !(spi->mode & SPI_RX_DUAL)))
+		if (((spi->mode & SPI_TX_QUAD) && !(spi->mode & SPI_RX_QUAD)) ||
+		    ((spi->mode & SPI_TX_DUAL) && !(spi->mode & SPI_RX_DUAL)))
 			return -ENOTSUPP;
 	}
 
+	ret = nuvoton_spi_set_freq(nuvoton,
+				t->speed_hz ? t->speed_hz : spi->max_speed_hz);
+	if (ret)
+		return ret;
+
+	ret = nuvoton_spi_setupxfer(spi);
+	if (ret)
+		return ret;
+
 	if (t->tx_buf) {
-		if (spi->mode & SPI_TX_QUAD)
+		if (t->tx_nbits == 4)
 			busw = OP_BUSW_4;
-		else if (spi->mode & SPI_TX_DUAL)
+		else if (t->tx_nbits == 2)
 			busw = OP_BUSW_2;
 	} else if (t->rx_buf) {
-		if (spi->mode & SPI_RX_QUAD)
+		if (t->rx_nbits == 4)
 			busw = OP_BUSW_4;
-		else if (spi->mode & SPI_RX_DUAL)
+		else if (t->rx_nbits == 2)
 			busw = OP_BUSW_2;
 	}
 
-	if (busw == OP_BUSW_4)
-		__raw_writel(((__raw_readl(nuvoton->regs + REG_CTL) | QUADIOEN) & ~DATDIR),
-		             nuvoton->regs + REG_CTL);//Enable Quad mode, direction input
-
-	ret = nuvoton_spi_set_freq(nuvoton, t->speed_hz);
-	if (ret)
-		return ret;
+	if (busw == OP_BUSW_4) {
+		ctl = __raw_readl(nuvoton->regs + REG_CTL) | QUADIOEN;
+		if (t->tx_buf)
+			ctl |= DATDIR;
+		else
+			ctl &= ~DATDIR;
+		__raw_writel(ctl, nuvoton->regs + REG_CTL);
+	}
 
 	ret = nuvoton_spi_data_xfer(nuvoton, t->tx_buf, t->rx_buf, t->len);
-	if (ret)
-		return ret;
-
-	spi_finalize_current_transfer(host);
-
-	return 0;
+	/* Synchronous transfer_one(): the SPI core handles finalization. */
+	ctl = __raw_readl(nuvoton->regs + REG_CTL);
+	__raw_writel(ctl & ~(QUADIOEN | DATDIR), nuvoton->regs + REG_CTL);
+	return ret;
 }
 
 static int __maybe_unused nuvoton_spi_runtime_suspend(struct device *dev)
@@ -950,8 +1055,6 @@ static int __maybe_unused nuvoton_spi_runtime_suspend(struct device *dev)
 	struct nuvoton_spi *nuvoton = spi_controller_get_devdata(host);
 
 	nuvoton_spi_clk_disable(nuvoton);
-	clk_disable_unprepare(nuvoton->clk);
-
 	return 0;
 }
 
@@ -959,13 +1062,6 @@ static int __maybe_unused nuvoton_spi_runtime_resume(struct device *dev)
 {
 	struct spi_controller *host = dev_get_drvdata(dev);
 	struct nuvoton_spi *nuvoton = spi_controller_get_devdata(host);
-	int ret;
-
-	ret = clk_prepare_enable(nuvoton->clk);
-	if (ret) {
-		dev_err(dev, "Cannot enable ps_clock.\n");
-		return ret;
-	}
 
 	return nuvoton_spi_clk_enable(nuvoton);
 }
@@ -975,148 +1071,119 @@ static const struct dev_pm_ops nuvoton_spi_dev_pm_ops = {
 	                   nuvoton_spi_runtime_resume, NULL)
 };
 
+static void nuvoton_qspi_clk_disable_action(void *data)
+{
+	struct nuvoton_spi *hw = data;
+
+	clk_disable_unprepare(hw->clk);
+}
+
+static void nuvoton_qspi_dma_release_action(void *data)
+{
+	dma_release_channel(data);
+}
+
 static int nuvoton_spi_probe(struct platform_device *pdev)
 {
-	struct spi_controller   *host;
+	struct device *dev = &pdev->dev;
+	struct spi_controller *host;
 	struct nuvoton_spi *nuvoton;
+	struct resource *res;
 	int ret;
-	struct ma35d1_ip_dma *pdma;
-        dma_cap_mask_t mask;
-	u32   val32[4];
-	int err = 0;
-	int status = 0;
 
-	host = spi_alloc_host(&pdev->dev, sizeof(struct nuvoton_spi));
+	/* devm allocation and registration use matching cleanup ownership. */
+	host = devm_spi_alloc_host(dev, sizeof(*nuvoton));
 	if (!host)
 		return -ENOMEM;
 
 	platform_set_drvdata(pdev, host);
-
 	nuvoton = spi_controller_get_devdata(host);
+	nuvoton->host = host;
+	nuvoton->dev = dev;
 
 	host->num_chipselect = 2;
 	host->mem_ops = &nuvoton_spi_mem_ops;
-
 	host->set_cs = nuvoton_spi_set_cs;
 	host->transfer_one = nuvoton_spi_transfer_one;
 	host->bits_per_word_mask = SPI_BPW_MASK(8);
 	host->mode_bits = SPI_CPOL | SPI_CPHA |
-	                  SPI_RX_DUAL | SPI_TX_DUAL |
-	                  SPI_RX_QUAD | SPI_TX_QUAD;
+			  SPI_RX_DUAL | SPI_TX_DUAL |
+			  SPI_RX_QUAD | SPI_TX_QUAD;
+	host->dev.of_node = dev->of_node;
 
-	host->dev.of_node = pdev->dev.of_node;
-
-	nuvoton->host = spi_controller_get(host);
-	nuvoton->pdata = nuvoton_spi_parse_dt(&pdev->dev);
-	nuvoton->dev = &pdev->dev;
-	nuvoton->host = host;
-	spin_lock_init(&nuvoton->lock);
 	mutex_init(&nuvoton->mutex_lock);
-
-	if (nuvoton->pdata == NULL) {
-		dev_err(&pdev->dev, "No platform data supplied\n");
-		err = -ENOENT;
-		goto err_pdata;
-	}
-
-	if (nuvoton->pdata->use_pdma) {
-		/* Zero out the capability mask then initialize it for a slave channel that is
-		 * private.
-		 */
-		dma_cap_zero(mask);
-		dma_cap_set(DMA_SLAVE, mask);
-		dma_cap_set(DMA_PRIVATE, mask);
-
-		/* Initailize wait queue head as  __WAIT_QUEUE_HEAD_INITIALIZER() */
-		init_waitqueue_head(&nuvoton->slave_txdone);
-		init_waitqueue_head(&nuvoton->slave_rxdone);
-
-		/* Request the DMA channel from the DMA engine and then use the device from
-		 * the channel for the proxy channel also.
-		 */
-		pdma = &nuvoton->dma;
-		pdma->chan_rx = dma_request_slave_channel(&pdev->dev, "rx");
-		if (!pdma->chan_rx) {
-			dev_err(&pdev->dev, "RX DMA channel request error\n");
-			err = -ENOENT;
-			goto err_pdata;
-		}
-		pr_debug("RX %s: %s module removed\n", __func__, dma_chan_name(pdma->chan_rx));
-
-		pdma->chan_tx = dma_request_slave_channel(&pdev->dev, "tx");
-		if (!pdma->chan_tx) {
-			dev_err(&pdev->dev, "TX DMA channel request error\n");
-			err = -ENOENT;
-			goto err_pdata;
-		}
-		pr_debug("TX %s: %s module removed\n", __func__, dma_chan_name(pdma->chan_tx));
-	}
-
 	init_completion(&nuvoton->txdone);
 	init_completion(&nuvoton->rxdone);
 
-	nuvoton->clk = of_clk_get(pdev->dev.of_node, 0);
-	if (IS_ERR(nuvoton->clk)) {
-		dev_err(&pdev->dev, "unable to get SYS clock, err=%d\n",
-		        status);
-		goto err_clk;
-	}
-	clk_prepare_enable(nuvoton->clk);
+	nuvoton->pdata = nuvoton_spi_parse_dt(dev);
+	if (IS_ERR(nuvoton->pdata))
+		return PTR_ERR(nuvoton->pdata);
 
-	if (of_property_read_u32_array(pdev->dev.of_node, "reg", val32, 4) != 0) {
-		dev_err(&pdev->dev, "can not get bank!\n");
-		return -EINVAL;
-	}
+	nuvoton->clk = devm_clk_get(dev, NULL);
+	if (IS_ERR(nuvoton->clk))
+		return dev_err_probe(dev, PTR_ERR(nuvoton->clk),
+				     "failed to get QSPI clock\n");
 
-	nuvoton->phyaddr = val32[1];
-	pr_debug("nuvoton->phyaddr = 0x%lx\n", (ulong)nuvoton->phyaddr);
+	ret = nuvoton_spi_clk_enable(nuvoton);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to enable QSPI clock\n");
 
-	nuvoton->res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (nuvoton->res == NULL) {
-		dev_err(&pdev->dev, "Cannot get IORESOURCE_MEM\n");
-		err = -ENOENT;
-		goto err_pdata;
-	}
+	ret = devm_add_action_or_reset(dev, nuvoton_qspi_clk_disable_action,
+					nuvoton);
+	if (ret)
+		return ret;
 
-	nuvoton->regs = devm_ioremap_resource(&pdev->dev, nuvoton->res);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!res)
+		return -ENODEV;
+	nuvoton->phyaddr = res->start;
+	nuvoton->res = res;
+	nuvoton->regs = devm_ioremap_resource(dev, res);
+	if (IS_ERR(nuvoton->regs))
+		return PTR_ERR(nuvoton->regs);
+
 	nuvoton->irq = platform_get_irq(pdev, 0);
-	if (nuvoton->irq < 0) {
-		dev_err(&pdev->dev, "No IRQ specified\n");
-		err = -ENOENT;
-		goto err_pdata;
+	if (nuvoton->irq < 0)
+		return nuvoton->irq;
+
+	if (nuvoton->pdata->use_pdma) {
+		nuvoton->dma.chan_rx = dma_request_chan(dev, "rx");
+		if (IS_ERR(nuvoton->dma.chan_rx))
+			return dev_err_probe(dev, PTR_ERR(nuvoton->dma.chan_rx),
+					     "failed to request RX PDMA channel\n");
+
+		ret = devm_add_action_or_reset(dev,
+					nuvoton_qspi_dma_release_action,
+					nuvoton->dma.chan_rx);
+		if (ret)
+			return ret;
+
+		nuvoton->dma.chan_tx = dma_request_chan(dev, "tx");
+		if (IS_ERR(nuvoton->dma.chan_tx))
+			return dev_err_probe(dev, PTR_ERR(nuvoton->dma.chan_tx),
+					     "failed to request TX PDMA channel\n");
+
+		ret = devm_add_action_or_reset(dev,
+					nuvoton_qspi_dma_release_action,
+					nuvoton->dma.chan_tx);
+		if (ret)
+			return ret;
 	}
 
+	/* Retain the Linux 6.6 controller/FIFO initialization sequence. */
 	nuvoton_spi_hw_init(nuvoton);
 
-	ret = devm_spi_register_controller(&pdev->dev, host);
-	if (ret) {
-		dev_err(&pdev->dev, "devm_spi_register_controller failed\n");
-		pm_runtime_disable(&pdev->dev);
-	}
+	ret = devm_spi_register_controller(dev, host);
+	if (ret)
+		return dev_err_probe(dev, ret,
+				     "failed to register QSPI controller\n");
 
-	return ret;
-
-err_clk:
-	spi_controller_put(nuvoton->host);
-err_pdata:
-	clk_disable(nuvoton->clk);
-	clk_put(nuvoton->clk);
-
-	return err;
+	return 0;
 }
 
 static void nuvoton_spi_remove(struct platform_device *pdev)
 {
-	struct spi_controller *host = spi_controller_get(platform_get_drvdata(pdev));
-
-	pm_runtime_get_sync(&pdev->dev);
-
-	pm_runtime_put_noidle(&pdev->dev);
-	pm_runtime_disable(&pdev->dev);
-	pm_runtime_set_suspended(&pdev->dev);
-
-	spi_controller_put(host);
-
+	/* Device-managed controller, channels and clock are released in order. */
 }
 
 static const struct of_device_id nuvoton_qspi_of_match[] = {
