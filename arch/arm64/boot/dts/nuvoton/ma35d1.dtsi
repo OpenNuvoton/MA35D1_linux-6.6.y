@@ -487,11 +487,20 @@
 
 	/* VC8000 engine */
 	vc8k:vc8k@40290000 {
+		/*
+		 * Vendor VC8K driver: "nuvoton,ma35d1-vc8k".
+		 * Mainline Hantro driver (CONFIG_VIDEO_HANTRO_MA35, requires
+		 * CONFIG_VIDEO_NUVOTON_VC8K=n): switch to "nuvoton,ma35d1-vpu"
+		 * and drop the vendor-only properties below.
+		 */
 		compatible = "nuvoton,ma35d1-vc8k";
+		/* common */
 		reg = <0x0 0x40290000 0x0 0x1000>;
+		clock-names = "vpu";
 		clocks = <&clk VC8K_GATE>;
-		nuvoton,sys = <&sys>;
 		interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>;
+		/* vendor VC8K driver only */
+		nuvoton,sys = <&sys>;
 		pp_out_enable = "yes";
 		pp_wait_vsync = <0>;  /* timeout(ms) of waiting VSYNC when PP enabled */
 		fb_width = <1024>;
