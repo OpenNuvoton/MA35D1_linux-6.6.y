@@ -1717,8 +1717,6 @@ int zap_huge_pmd(struct mmu_gather *tlb, struct vm_area_struct *vma,
 
 		if (pmd_present(orig_pmd)) {
 			page = pmd_page(orig_pmd);
-			page_remove_rmap(page, vma, true);
-			VM_BUG_ON_PAGE(page_mapcount(page) < 0, page);
 			VM_BUG_ON_PAGE(!PageHead(page), page);
 		} else if (thp_migration_supported()) {
 			swp_entry_t entry;
@@ -1740,6 +1738,12 @@ int zap_huge_pmd(struct mmu_gather *tlb, struct vm_area_struct *vma,
 
 			if (pmd_present(orig_pmd) && pmd_dirty(orig_pmd))
 				folio_mark_dirty(page_folio(page));
+		}
+
+		/* Remove the rmap after transferring the dirty bit to the folio. */
+		if (pmd_present(orig_pmd)) {
+			page_remove_rmap(page, vma, true);
+			VM_BUG_ON_PAGE(page_mapcount(page) < 0, page);
 		}
 
 		spin_unlock(ptl);
@@ -2745,6 +2749,8 @@ int split_huge_page_to_list(struct page *page, struct list_head *list)
 			ret = -EBUSY;
 			goto out;
 		}
+
+		mapping_set_update(&xas, mapping);
 
 		xas_split_alloc(&xas, folio, folio_order(folio), gfp);
 		if (xas_error(&xas)) {

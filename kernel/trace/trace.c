@@ -10040,6 +10040,12 @@ static struct notifier_block trace_module_nb = {
 
 static __init void tracer_init_tracefs_work_func(struct work_struct *work)
 {
+	/*
+	 * Do not attempt to initialize tracefs if tracing was disabled or
+	 * failed to allocate
+	 */
+	if (tracing_disabled)
+		return;
 
 	event_trace_init();
 
@@ -10431,7 +10437,7 @@ __init static void enable_instances(void)
 
 		tr = trace_array_get_by_name(tok, NULL);
 		if (!tr) {
-			pr_warn("Failed to create instance buffer %s\n", curr_str);
+			pr_warn("Failed to create instance buffer '%s'\n", tok);
 			continue;
 		}
 		/* Allow user space to delete it */
